@@ -85,6 +85,18 @@ namespace quda
         else if constexpr (dslash_prefetch_type() == PrefetchType::TENSOR)
           strcat(aux_base, ",prefetch=tensor");
       }
+      if constexpr (sizeof(typename Arg::Float) < sizeof(double)) {
+#if defined(QUDA_WILSON_MMA_SMEM) && (QUDA_WILSON_MMA_SMEM == 1)
+        strcat(aux_base, ",tc_smem_d");
+        i32toa(tile_str, QUDA_WILSON_MMA_DIRS);
+        strcat(aux_base, tile_str);
+        strcat(aux_base, "_m");
+        i32toa(tile_str, QUDA_WILSON_MMA_MODE);
+        strcat(aux_base, tile_str);
+#else
+        strcat(aux_base, ",tc_mma");
+#endif
+      }
     }
 
     /**
@@ -200,8 +212,16 @@ namespace quda
       }
     }
 
-    virtual int blockStep() const override { return (arg.shmem & 64) ? 8 : 16; }
-    virtual int blockMin() const override { return (arg.shmem & 64) ? 8 : 16; }
+    virtual int blockStep() const override
+    {
+      if constexpr (sizeof(typename Arg::Float) < sizeof(double)) return 32;
+      return (arg.shmem & 64) ? 8 : 16;
+    }
+    virtual int blockMin() const override
+    {
+      if constexpr (sizeof(typename Arg::Float) < sizeof(double)) return 32;
+      return (arg.shmem & 64) ? 8 : 16;
+    }
 
     unsigned int maxSharedBytesPerBlock() const override { return maxDynamicSharedBytesPerBlock(); }
 

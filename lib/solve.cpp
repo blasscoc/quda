@@ -291,6 +291,7 @@ namespace quda
         // if we have not filled the space yet just augment
         if ((int)basis.size() < param.chrono_max_dim) {
           ColorSpinorParam cs_param(out[0]);
+          cs_param.create = QUDA_ZERO_FIELD_CREATE;
           cs_param.setPrecision(param.chrono_precision);
           basis.emplace_back(cs_param);
         }

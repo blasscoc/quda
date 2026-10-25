@@ -22,3 +22,11 @@ autom4te.cache/*
 cmake/CPM_*.cmake
 Testing/
 build/
+
+# Throughput experiment ignore rules
+*.o
+*.so
+*.bin
+*.log
+tunecache.tsv
+build/

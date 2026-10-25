@@ -32,8 +32,12 @@
 extern quda::GaugeField *gaugePrecise;
 extern quda::GaugeField *gaugeSloppy;
 extern quda::GaugeField *gaugePrecondition;
+extern quda::GaugeField *extendedGaugeResident;
 extern quda::CloverField *cloverPrecise;
 extern quda::GaugeField momResident;
+
+void updateExtendedGaugeResident(bool new_gauge, const quda::lat_dim_t &R, quda::TimeProfile &profile,
+                                 bool redundant_comms = false, QudaReconstructType recon = QUDA_RECONSTRUCT_INVALID);
 
 namespace quda
 {
@@ -117,6 +121,7 @@ namespace quda
   {
     EigenTrackingState *g_eigenTrackingInstance = nullptr;
     std::unique_ptr<ColorSpinorField> g_storedPhi;
+    std::unique_ptr<ColorSpinorField> g_storedBoundarySolution;
   } // namespace
 
   EigenTrackingState *getEigenTrackingInstance() { return g_eigenTrackingInstance; }
@@ -137,7 +142,20 @@ namespace quda
 
   void setStoredPhi(ColorSpinorField phi) { g_storedPhi = std::make_unique<ColorSpinorField>(std::move(phi)); }
 
-  void releaseStoredPhi() { g_storedPhi.reset(); }
+  void releaseStoredPhi()
+  {
+    g_storedPhi.reset();
+    g_storedBoundarySolution.reset();
+  }
+
+  ColorSpinorField *getStoredBoundarySolution() { return g_storedBoundarySolution.get(); }
+
+  void setStoredBoundarySolution(const ColorSpinorField &sol)
+  {
+    g_storedBoundarySolution = std::make_unique<ColorSpinorField>(sol);
+  }
+
+  void releaseStoredBoundarySolution() { g_storedBoundarySolution.reset(); }
 
   int getMGNullVectorCount(void *mg_instance)
   {
@@ -232,13 +250,15 @@ namespace quda
   /**
      @brief Create a full (both-parity) spinor field from a parity field's metadata.
      @param parityRef Parity field whose metadata is used as template
+     @param create Field creation type (default: zero allocation)
   */
-  static ColorSpinorField createFullField(const ColorSpinorField &parityRef)
+  static ColorSpinorField createFullField(const ColorSpinorField &parityRef,
+                                          QudaFieldCreate create = QUDA_ZERO_FIELD_CREATE)
   {
     ColorSpinorParam param(parityRef);
     param.siteSubset = QUDA_FULL_SITE_SUBSET;
     param.x[0] *= 2;
-    param.create = QUDA_ZERO_FIELD_CREATE;
+    param.create = create;
     return ColorSpinorField(param);
   }
 
@@ -261,11 +281,10 @@ namespace quda
     getProfile().TPSTART(QUDA_PROFILE_COMPUTE);
     lat_dim_t R;
     for (int d = 0; d < 4; d++) R[d] = (d == 0 ? 2 : 1) * commDimPartitioned(d);
-    GaugeField *gaugeEx = createExtendedGauge(*gaugePrecise, R, getProfile());
-    double3 plaq3 = plaquette(*gaugeEx);
+    updateExtendedGaugeResident(false, R, getProfile());
+    double3 plaq3 = plaquette(*extendedGaugeResident);
     int V = 1;
     for (int d = 0; d < 4; d++) V *= gaugePrecise->X()[d];
-    delete gaugeEx;
     getProfile().TPSTOP(QUDA_PROFILE_COMPUTE);
     return beta * (1.0 - plaq3.x) * V * 6;
   }
@@ -493,7 +512,45 @@ namespace quda
       const int cgRitzCap = (tracking && tracking->isActive()) ? tracking->getParam().residualCap : 0;
       CGTracker cgTracker(cgRitzCap);
 
-      {
+      if (inv_param.chrono_max_dim == 1) {
+        TrackerScope<CGTracker> scope(activeCGTracker, cgTracker.isActive() ? &cgTracker : nullptr);
+        ip.chrono_make_resident = 0;
+        ip.chrono_use_resident = 0;
+        bool is_h_init = (integratorCGSolves() == 0);
+        if (is_h_init) {
+          releaseStoredBoundarySolution();
+          ip.use_init_guess = QUDA_USE_INIT_GUESS_NO;
+        } else if (getStoredBoundarySolution()) {
+          ip.use_init_guess = QUDA_USE_INIT_GUESS_YES;
+        } else {
+          ip.use_init_guess = QUDA_USE_INIT_GUESS_NO;
+        }
+
+        bool pc_solve = (ip.solve_type == QUDA_DIRECT_PC_SOLVE) || (ip.solve_type == QUDA_NORMOP_PC_SOLVE);
+        Dirac *dirac = nullptr, *diracSloppy = nullptr, *diracPre = nullptr, *diracEig = nullptr;
+        createDiracWithEig(dirac, diracSloppy, diracPre, diracEig, ip, pc_solve, false);
+
+        std::vector<ColorSpinorField> x(1, csParam);
+        if (!is_h_init && getStoredBoundarySolution()) {
+          x[0] = *getStoredBoundarySolution();
+        }
+        std::vector<ColorSpinorField> b(1, ColorSpinorField(phi));
+
+        solve(x, b, *dirac, *diracSloppy, *diracPre, *diracEig, ip);
+        integratorBumpCGStats(ip.iter);
+        x_dev = x[0];
+
+        if (is_h_init) {
+          setStoredBoundarySolution(x[0]);
+        } else {
+          releaseStoredBoundarySolution();
+        }
+
+        delete dirac;
+        delete diracSloppy;
+        if (diracPre != diracSloppy) delete diracPre;
+        if (diracEig != diracPre) delete diracEig;
+      } else {
         TrackerScope<CGTracker> scope(activeCGTracker, cgTracker.isActive() ? &cgTracker : nullptr);
         ip.make_resident_solution = 1;
         ip.use_resident_solution = 1;
@@ -565,33 +622,46 @@ namespace quda
       errorQuda("EO fermion force requires QUDA_MATPC_EVEN_EVEN_ASYMMETRIC for dslash type %d (got matpc %d)",
                 inv_param.dslash_type, inv_param.matpc_type);
 
-    // --- Common fields: y = M̂x, psi_odd, chi_odd ---
-    ColorSpinorField y_even = createParityField(x_even);
-    dirac->M(y_even, x_even);
-
-    // psi_odd = A(+μ)_oo⁻¹ D_oe x
-    ColorSpinorField psi_odd = createParityField(x_even);
-    dirac->Dslash(psi_odd, x_even, QUDA_ODD_PARITY);
-
-    // chi_odd = A(-μ)_oo⁻¹ D_eo† y, built dagger-explicitly. This replaces
-    // the earlier γ₅·Dslash(γ₅y) sandwich, which is only correct when
-    // A† = A: the twisted term commutes with γ₅ but Ã(μ)† = Ã(-μ), so the
-    // sandwich fails to flip the twist sign. The PC Dslash under
-    // (dagger, asymmetric matpc) applies the daggered diagonal inverse on
-    // the output parity for Wilson (trivially), clover (C† = C), twisted
-    // mass and twisted clover (μ → -μ flipped inside the kernels).
-    ColorSpinorField chi_odd = createParityField(x_even);
-    dirac->Dagger(QUDA_DAG_YES);
-    dirac->Dslash(chi_odd, y_even, QUDA_ODD_PARITY);
-    dirac->Dagger(QUDA_DAG_NO);
-
     // Hopping fields (Schwinger reconstruction, same as Wilson)
-    ColorSpinorField psi_full = createFullField(x_even);
-    ColorSpinorField chi_full = createFullField(x_even);
-    psi_full[QUDA_EVEN_PARITY] = x_even;
-    psi_full[QUDA_ODD_PARITY] = psi_odd;
-    chi_full[QUDA_EVEN_PARITY] = y_even;
-    chi_full[QUDA_ODD_PARITY] = chi_odd;
+    ColorSpinorField psi_full = createFullField(x_even, QUDA_NULL_FIELD_CREATE);
+    ColorSpinorField chi_full = createFullField(x_even, QUDA_NULL_FIELD_CREATE);
+
+    if (inv_param.dslash_type == QUDA_WILSON_DSLASH) {
+      // Direct into psi_full / chi_full parity halves: eliminates the duplicate
+      // D_oe Dslash inside dirac->M(y_even, x_even) and avoids 3 intermediate
+      // parity spinor allocations + 3 parity copies.
+      psi_full[QUDA_EVEN_PARITY] = x_even;
+      dirac->Dslash(psi_full[QUDA_ODD_PARITY], x_even, QUDA_ODD_PARITY);
+      dirac->DslashXpay(chi_full[QUDA_EVEN_PARITY], psi_full[QUDA_ODD_PARITY], QUDA_EVEN_PARITY, x_even, -kappa2);
+      dirac->Dagger(QUDA_DAG_YES);
+      dirac->Dslash(chi_full[QUDA_ODD_PARITY], chi_full[QUDA_EVEN_PARITY], QUDA_ODD_PARITY);
+      dirac->Dagger(QUDA_DAG_NO);
+    } else {
+      // --- Common fields: y = M̂x, psi_odd, chi_odd ---
+      ColorSpinorField y_even = createParityField(x_even);
+      dirac->M(y_even, x_even);
+
+      // psi_odd = A(+μ)_oo⁻¹ D_oe x
+      ColorSpinorField psi_odd = createParityField(x_even);
+      dirac->Dslash(psi_odd, x_even, QUDA_ODD_PARITY);
+
+      // chi_odd = A(-μ)_oo⁻¹ D_eo† y, built dagger-explicitly. This replaces
+      // the earlier γ₅·Dslash(γ₅y) sandwich, which is only correct when
+      // A† = A: the twisted term commutes with γ₅ but Ã(μ)† = Ã(-μ), so the
+      // sandwich fails to flip the twist sign. The PC Dslash under
+      // (dagger, asymmetric matpc) applies the daggered diagonal inverse on
+      // the output parity for Wilson (trivially), clover (C† = C), twisted
+      // mass and twisted clover (μ → -μ flipped inside the kernels).
+      ColorSpinorField chi_odd = createParityField(x_even);
+      dirac->Dagger(QUDA_DAG_YES);
+      dirac->Dslash(chi_odd, y_even, QUDA_ODD_PARITY);
+      dirac->Dagger(QUDA_DAG_NO);
+
+      psi_full[QUDA_EVEN_PARITY] = x_even;
+      psi_full[QUDA_ODD_PARITY] = psi_odd;
+      chi_full[QUDA_EVEN_PARITY] = y_even;
+      chi_full[QUDA_ODD_PARITY] = chi_odd;
+    }
 
     // --- Hopping force: coeff = 2κ² ---
     // QUDA momentum convention: with T = momAction = ¼Σ_a p_a² (Gell-Mann

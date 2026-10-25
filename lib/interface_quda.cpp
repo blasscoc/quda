@@ -1,10 +1,12 @@
 #include <cmath>
+#include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <iostream>
 #include <functional>
+#include <sstream>
 #include <sys/time.h>
 
 #include <quda.h>
@@ -651,19 +653,44 @@ void freeGaugeSplit();
  * @param redundant_comms[in] redundant_comms parameter for createExtendedGauge()
  * @param recon[in] recon parameter for createExtendedGauge()
  */
+static QudaReconstructType g_extended_gauge_recon_override = QUDA_RECONSTRUCT_INVALID;
+
+namespace quda {
+  void setExtendedGaugeReconOverride(QudaReconstructType recon) {
+    g_extended_gauge_recon_override = recon;
+  }
+}
+
 void updateExtendedGaugeResident(bool new_gauge, const lat_dim_t &R, TimeProfile &profile, bool redundant_comms = false,
                                  QudaReconstructType recon = QUDA_RECONSTRUCT_INVALID)
 {
   if (!gaugePrecise) errorQuda("No resident gauge field allocated");
+  if (recon == QUDA_RECONSTRUCT_INVALID) {
+    if (g_extended_gauge_recon_override != QUDA_RECONSTRUCT_INVALID) {
+      recon = g_extended_gauge_recon_override;
+    } else if (const char *env_er = getenv("QUDA_EXTENDED_GAUGE_RECON")) {
+      int v = atoi(env_er);
+      if (v == 12) recon = QUDA_RECONSTRUCT_12;
+      else if (v == 8) recon = QUDA_RECONSTRUCT_8;
+      else if (v == 18) recon = QUDA_RECONSTRUCT_NO;
+    }
+  }
   if (extendedGaugeResident) {
-    if (new_gauge) {
+    bool params_mismatch = (recon != QUDA_RECONSTRUCT_INVALID && recon != extendedGaugeResident->Reconstruct())
+      || (recon == QUDA_RECONSTRUCT_INVALID && extendedGaugeResident->Reconstruct() != gaugePrecise->Reconstruct())
+      || (R[0] != extendedGaugeResident->R()[0]) || R[1] != extendedGaugeResident->R()[1]
+      || R[2] != extendedGaugeResident->R()[2] || R[3] != extendedGaugeResident->R()[3]
+      || extendedGaugeResident->Precision() != gaugePrecise->Precision()
+      || extendedGaugeResident->X()[0] != gaugePrecise->X()[0] + 2 * R[0]
+      || extendedGaugeResident->X()[1] != gaugePrecise->X()[1] + 2 * R[1]
+      || extendedGaugeResident->X()[2] != gaugePrecise->X()[2] + 2 * R[2]
+      || extendedGaugeResident->X()[3] != gaugePrecise->X()[3] + 2 * R[3];
+    if (params_mismatch) {
       delete extendedGaugeResident;
       extendedGaugeResident = createExtendedGauge(*gaugePrecise, R, profile, redundant_comms, recon);
-    } else if ((recon != QUDA_RECONSTRUCT_INVALID && recon != extendedGaugeResident->Reconstruct())
-               || (R[0] != extendedGaugeResident->R()[0]) || R[1] != extendedGaugeResident->R()[1]
-               || R[2] != extendedGaugeResident->R()[2] || R[3] != extendedGaugeResident->R()[3]) {
-      delete extendedGaugeResident;
-      extendedGaugeResident = createExtendedGauge(*gaugePrecise, R, profile, redundant_comms, recon);
+    } else if (new_gauge) {
+      copyExtendedGauge(*extendedGaugeResident, *gaugePrecise, gaugePrecise->Location());
+      extendedGaugeResident->exchangeExtendedGhost(R, profile, redundant_comms);
     }
   } else if (!new_gauge) {
     extendedGaugeResident = createExtendedGauge(*gaugePrecise, R, profile, redundant_comms, recon);
@@ -7117,3 +7144,415 @@ void laphSinkProject(double _Complex *host_sinks, void **host_quark, int n_quark
     reinterpret_cast<std::complex<double> *>(host_sinks)[i] = hostSink[i];
   }
 }
+
+namespace quda {
+
+  struct FixedWorkCGCounters {
+    bool enabled = false;
+    int target_iters = 0;
+    int k_rel = 0;
+    int k_replay = 40;
+    int executed_iters = 0;
+    int sloppy_mat_calls = 0;
+    int reliable_mat_calls = 0;
+    int reliable_updates = 0;
+    int replay_resets = 0;
+    int pipeline_fallbacks = 0;
+    bool finite_ok = true;
+    uint64_t flops_delta = 0;
+    float cuda_event_ms = 0.0f;
+    double host_wall_ms = 0.0;
+    double pre_replay_rel_res = 0.0;
+  };
+
+  extern FixedWorkCGCounters g_fixed_work_cg;
+
+  void logResidentMemoryBreakdown(size_t V_sites, int accum_pipeline)
+  {
+    size_t b_precise = gaugePrecise ? gaugePrecise->Bytes() : 0;
+    size_t b_ext = extendedGaugeResident ? extendedGaugeResident->Bytes() : 0;
+    size_t b_mom = !momResident.empty() ? momResident.Bytes() : 0;
+    size_t b_sloppy = (gaugeSloppy && gaugeSloppy != gaugePrecise) ? gaugeSloppy->Bytes() : 0;
+    size_t b_precon = (gaugePrecondition && gaugePrecondition != gaugePrecise && gaugePrecondition != gaugeSloppy)
+                        ? gaugePrecondition->Bytes() : 0;
+    size_t b_refine = (gaugeRefinement && gaugeRefinement != gaugePrecise && gaugeRefinement != gaugeSloppy
+                       && gaugeRefinement != gaugePrecondition)
+                        ? gaugeRefinement->Bytes() : 0;
+    size_t b_eig = (gaugeEigensolver && gaugeEigensolver != gaugePrecise && gaugeEigensolver != gaugeSloppy
+                    && gaugeEigensolver != gaugePrecondition)
+                     ? gaugeEigensolver->Bytes() : 0;
+
+    size_t b_gauge_resident_total = b_precise + b_ext + b_mom + b_sloppy + b_precon + b_refine + b_eig;
+    // Live spinors during EO Wilson CG + force:
+    // 5 even FP64 spinors (phi, x, b, r, y) + 1 boundary forecast even FP64 spinor = 6 * (V/2) * 24 * 8 = 576 B/site
+    // Sloppy CG vectors: p, Ap, r_sloppy + XUpdateBatch(Np) = (3 + Np) even sloppy spinors
+    size_t sloppy_spinor_b_per_even = (gaugeSloppy && gaugeSloppy->Precision() == QUDA_HALF_PRECISION) ? (24 * 2 + 4) : (24 * 4);
+    size_t b_cg_spinors_est = 6 * (V_sites / 2) * 24 * sizeof(double) + (size_t)(3 + accum_pipeline) * (V_sites / 2) * sloppy_spinor_b_per_even;
+    size_t dev_alloc = device_allocated();
+    size_t dev_peak = device_allocated_peak();
+    size_t pinned_peak = host_pinned_allocated_peak();
+
+    printf("=== MEMORY_BREAKDOWN_BEGIN ===\n");
+    printf("V_SITES=%zu\n", V_sites);
+    printf("GAUGE_PRECISE_BYTES=%zu (%.2f B/site, recon=%d, prec=%d)\n",
+           b_precise, (double)b_precise / V_sites,
+           gaugePrecise ? (int)gaugePrecise->Reconstruct() : 0,
+           gaugePrecise ? (int)gaugePrecise->Precision() : 0);
+    printf("EXTENDED_GAUGE_RESIDENT_BYTES=%zu (%.2f B/site, recon=%d, prec=%d)\n",
+           b_ext, (double)b_ext / V_sites,
+           extendedGaugeResident ? (int)extendedGaugeResident->Reconstruct() : 0,
+           extendedGaugeResident ? (int)extendedGaugeResident->Precision() : 0);
+    printf("MOM_RESIDENT_BYTES=%zu (%.2f B/site)\n", b_mom, (double)b_mom / V_sites);
+    printf("GAUGE_SLOPPY_BYTES=%zu (%.2f B/site, recon=%d, prec=%d)\n",
+           b_sloppy, (double)b_sloppy / V_sites,
+           gaugeSloppy ? (int)gaugeSloppy->Reconstruct() : 0,
+           gaugeSloppy ? (int)gaugeSloppy->Precision() : 0);
+    printf("GAUGE_PRECONDITION_BYTES=%zu (%.2f B/site, aliased_to_sloppy=%d)\n",
+           b_precon, (double)b_precon / V_sites, (gaugePrecondition == gaugeSloppy) ? 1 : 0);
+    printf("GAUGE_RESIDENT_TOTAL_BYTES=%zu (%.2f B/site)\n",
+           b_gauge_resident_total, (double)b_gauge_resident_total / V_sites);
+    printf("CG_SPINORS_EST_BYTES=%zu (%.2f B/site, Np=%d)\n",
+           b_cg_spinors_est, (double)b_cg_spinors_est / V_sites, accum_pipeline);
+    printf("QUDA_DEVICE_ALLOCATED_BYTES=%zu (%.2f B/site)\n", dev_alloc, (double)dev_alloc / V_sites);
+    printf("QUDA_DEVICE_ALLOCATED_PEAK_BYTES=%zu (%.2f B/site, %.3f MB)\n",
+           dev_peak, (double)dev_peak / V_sites, (double)dev_peak / (1024.0 * 1024.0));
+    printf("QUDA_HOST_PINNED_PEAK_BYTES=%zu (%.3f MB)\n",
+           pinned_peak, (double)pinned_peak / (1024.0 * 1024.0));
+    printf("=== MEMORY_BREAKDOWN_END ===\n");
+    fflush(stdout);
+  }
+
+  // The dump is deliberately independent of native field order, alignment and norm storage.
+  // Each file contains RHS-major, parity-major, checkerboard-site/spin/color/re-im doubles.
+  static void dumpFixedWorkSpinors(const char *prefix, const char *kind,
+                                  const std::vector<ColorSpinorField> &fields, const QudaInvertParam &ip,
+                                  unsigned long long base_seed)
+  {
+    if (fields.empty()) errorQuda("Cannot dump an empty fixed-work spinor collection");
+    if (comm_size() != 1) errorQuda("QUDA_FIXED_DUMP_PREFIX currently requires a single MPI rank");
+    const std::string stem = std::string(prefix) + "." + kind;
+    const std::string data_path = stem + ".bin";
+    FILE *file = fopen(data_path.c_str(), "wb");
+    if (!file) errorQuda("Cannot open fixed-work dump %s: %s", data_path.c_str(), strerror(errno));
+
+    for (const auto &field : fields) {
+      if (field.Length() != fields[0].Length() || field.Nvec() != 1 || field.IsComposite())
+        errorQuda("Unexpected fixed-work spinor geometry for %s", data_path.c_str());
+      ColorSpinorParam param(field);
+      param.setPrecision(QUDA_DOUBLE_PRECISION);
+      param.fieldOrder = QUDA_SPACE_SPIN_COLOR_FIELD_ORDER;
+      param.location = QUDA_CUDA_FIELD_LOCATION;
+      param.mem_type = QUDA_MEMORY_DEVICE;
+      param.create = QUDA_NULL_FIELD_CREATE;
+      ColorSpinorField packed(param);
+      if (packed.Bytes() != packed.Length() * sizeof(double))
+        errorQuda("Fixed-work dump field must not contain padding");
+      packed.copy(field);
+      cudaError_t status = cudaDeviceSynchronize();
+      if (status != cudaSuccess)
+        errorQuda("CUDA conversion failed for %s: %s", data_path.c_str(), cudaGetErrorString(status));
+      std::vector<double> host(packed.Length());
+      status = cudaMemcpy(host.data(), packed.data(), packed.Bytes(), cudaMemcpyDeviceToHost);
+      if (status != cudaSuccess)
+        errorQuda("CUDA copy failed for %s: %s", data_path.c_str(), cudaGetErrorString(status));
+      if (fwrite(host.data(), sizeof(double), host.size(), file) != host.size())
+        errorQuda("Cannot write fixed-work dump %s: %s", data_path.c_str(), strerror(errno));
+    }
+    if (fclose(file) != 0) errorQuda("Cannot close fixed-work dump %s: %s", data_path.c_str(), strerror(errno));
+
+    const auto &field = fields[0];
+    const uint16_t endian_probe = 1;
+    std::ostringstream metadata;
+    metadata << "format=quda_fixed_work_raw_f64_v1\nkind=" << kind
+             << "\nscalar_bytes=" << sizeof(double)
+             << "\nbyte_order=" << (*reinterpret_cast<const unsigned char *>(&endian_probe) ? "little" : "big")
+             << "\nlayout=rhs,parity,checkerboard_site,spin,color,real_imag"
+             << "\nn_rhs=" << fields.size() << "\nlength_per_rhs=" << field.Length()
+             << "\ntotal_doubles=" << fields.size() * field.Length()
+             << "\nn_dim=" << field.Ndim() << "\nfull_dims=";
+    for (int d = 0; d < field.Ndim(); d++) metadata << (d ? "," : "") << field.full_dim(d);
+    metadata << "\nfield_dims=";
+    for (int d = 0; d < field.Ndim(); d++) metadata << (d ? "," : "") << field.X(d);
+    metadata << "\nn_spin=" << field.Nspin() << "\nn_color=" << field.Ncolor()
+             << "\nsite_subset=" << field.SiteSubset() << "\nsite_order=" << field.SiteOrder()
+             << "\nsuggested_parity=" << field.SuggestedParity() << "\ngamma_basis=" << field.GammaBasis()
+             << "\nsource_precision=" << field.Precision() << "\ncuda_prec_sloppy=" << ip.cuda_prec_sloppy
+             << "\nbase_seed=" << base_seed << "\nrhs_seed_stride=100003\n";
+    const std::string meta_path = stem + ".meta";
+    const std::string meta = metadata.str();
+    file = fopen(meta_path.c_str(), "wb");
+    if (!file) errorQuda("Cannot open fixed-work dump metadata %s: %s", meta_path.c_str(), strerror(errno));
+    if (fwrite(meta.data(), 1, meta.size(), file) != meta.size())
+      errorQuda("Cannot write fixed-work dump metadata %s: %s", meta_path.c_str(), strerror(errno));
+    if (fclose(file) != 0) errorQuda("Cannot close fixed-work dump metadata %s: %s", meta_path.c_str(), strerror(errno));
+    printf("FIXED_WORK_DUMP: kind=%s n_rhs=%zu length_per_rhs=%zu data=%s metadata=%s\n", kind, fields.size(),
+           field.Length(), data_path.c_str(), meta_path.c_str());
+    fflush(stdout);
+  }
+
+  bool runMultiRhsCGProbe(QudaInvertParam &inv_param, unsigned long long base_seed, size_t V_sites)
+  {
+    QudaInvertParam ip = inv_param;
+    ip.solve_type = QUDA_NORMOP_PC_SOLVE;
+    ip.solution_type = QUDA_MATPCDAG_MATPC_SOLUTION;
+    ip.use_init_guess = QUDA_USE_INIT_GUESS_NO;
+    ip.chrono_make_resident = 0;
+    ip.chrono_use_resident = 0;
+    ip.compute_true_res = 1;
+
+    Dirac *dirac = nullptr, *diracSloppy = nullptr, *diracPre = nullptr, *diracEig = nullptr;
+    createDiracWithEig(dirac, diracSloppy, diracPre, diracEig, ip, true, false);
+
+    bool fixed_work_mode = (getenv("QUDA_FIXED_WORK_BENCH") && std::string(getenv("QUDA_FIXED_WORK_BENCH")) == "1") ||
+                           (getenv("QUDA_FIXED_ITER_BENCH") && std::string(getenv("QUDA_FIXED_ITER_BENCH")) == "1");
+
+    if (fixed_work_mode) {
+      int target_iters = getenv("QUDA_FIXED_ITERS") ? atoi(getenv("QUDA_FIXED_ITERS")) : 500;
+      int k_rel = getenv("QUDA_FIXED_REL_CADENCE") ? atoi(getenv("QUDA_FIXED_REL_CADENCE")) : 20;
+      int k_replay = getenv("QUDA_FIXED_REPLAY_CADENCE") ? atoi(getenv("QUDA_FIXED_REPLAY_CADENCE")) : 40;
+      int n_repeats = getenv("QUDA_FIXED_REPEATS") ? atoi(getenv("QUDA_FIXED_REPEATS")) : 3;
+      int n_rhs = getenv("QUDA_FIXED_NRHS") ? atoi(getenv("QUDA_FIXED_NRHS")) : 1;
+      int op_iters = getenv("QUDA_FIXED_OP_ITERS") ? atoi(getenv("QUDA_FIXED_OP_ITERS")) : 1000;
+
+      ip.pipeline = getenv("QUDA_CG_PIPELINE") ? atoi(getenv("QUDA_CG_PIPELINE")) : 0;
+      ip.num_src = n_rhs;
+
+      std::vector<ColorSpinorField> b_vecs;
+      std::vector<ColorSpinorField> x_vecs;
+      b_vecs.reserve(n_rhs);
+      x_vecs.reserve(n_rhs);
+      for (int r = 0; r < n_rhs; r++) {
+        unsigned long long s_r = base_seed + 100003ULL * (r + 1);
+        ColorSpinorField phi_r = generateEOPseudofermion(ip, s_r);
+        ColorSpinorParam xParam(phi_r);
+        xParam.create = QUDA_ZERO_FIELD_CREATE;
+        b_vecs.push_back(std::move(phi_r));
+        x_vecs.emplace_back(xParam);
+      }
+
+      printf("=== FIXED_WORK_CG_PROBE_BEGIN (V_sites=%zu, target_iters=%d, n_rhs=%d, k_rel=%d, k_replay=%d, pipeline=%d) ===\n",
+             V_sites, target_iters, n_rhs, k_rel, k_replay, ip.pipeline);
+      fflush(stdout);
+
+      for (int r = 0; r < n_rhs; r++) blas::zero(x_vecs[r]);
+      g_fixed_work_cg = FixedWorkCGCounters{};
+      g_fixed_work_cg.enabled = true;
+      g_fixed_work_cg.target_iters = 20;
+      g_fixed_work_cg.k_rel = k_rel;
+      g_fixed_work_cg.k_replay = k_replay;
+      ip.iter = 0;
+      solve(x_vecs, b_vecs, *dirac, *diracSloppy, *diracPre, *diracEig, ip);
+      qudaDeviceSynchronize();
+      saveTuneCache();
+
+      std::vector<float> cuda_ms_vec;
+      std::vector<double> host_ms_vec;
+      std::vector<int> executed_iters_vec;
+      std::vector<int> sloppy_mat_vec;
+      std::vector<int> reliable_mat_vec;
+      std::vector<int> reliable_up_vec;
+      std::vector<int> replay_reset_vec;
+      std::vector<int> pipeline_fb_vec;
+      std::vector<uint64_t> flops_vec;
+      std::vector<double> pre_replay_rel_res_vec;
+      bool all_finite = true;
+
+      for (int rep = 0; rep < n_repeats; rep++) {
+        for (int r = 0; r < n_rhs; r++) blas::zero(x_vecs[r]);
+        g_fixed_work_cg = FixedWorkCGCounters{};
+        g_fixed_work_cg.enabled = true;
+        g_fixed_work_cg.target_iters = target_iters;
+        g_fixed_work_cg.k_rel = k_rel;
+        g_fixed_work_cg.k_replay = k_replay;
+        ip.iter = 0;
+
+        solve(x_vecs, b_vecs, *dirac, *diracSloppy, *diracPre, *diracEig, ip);
+        qudaDeviceSynchronize();
+
+        if (!g_fixed_work_cg.finite_ok) all_finite = false;
+
+        cuda_ms_vec.push_back(g_fixed_work_cg.cuda_event_ms);
+        host_ms_vec.push_back(g_fixed_work_cg.host_wall_ms);
+        executed_iters_vec.push_back(g_fixed_work_cg.executed_iters);
+        sloppy_mat_vec.push_back(g_fixed_work_cg.sloppy_mat_calls);
+        reliable_mat_vec.push_back(g_fixed_work_cg.reliable_mat_calls);
+        reliable_up_vec.push_back(g_fixed_work_cg.reliable_updates);
+        replay_reset_vec.push_back(g_fixed_work_cg.replay_resets);
+        pipeline_fb_vec.push_back(g_fixed_work_cg.pipeline_fallbacks);
+        flops_vec.push_back(g_fixed_work_cg.flops_delta);
+        pre_replay_rel_res_vec.push_back(g_fixed_work_cg.pre_replay_rel_res);
+
+        printf("FIXED_WORK_TRIAL rep=%d cuda_event_ms=%.3f host_wall_ms=%.3f executed_iters=%d sloppy_mat=%d reliable_mat=%d reliable_updates=%d replay_resets=%d finite_ok=%d\n",
+               rep, g_fixed_work_cg.cuda_event_ms, g_fixed_work_cg.host_wall_ms, g_fixed_work_cg.executed_iters,
+               g_fixed_work_cg.sloppy_mat_calls, g_fixed_work_cg.reliable_mat_calls, g_fixed_work_cg.reliable_updates,
+               g_fixed_work_cg.replay_resets, g_fixed_work_cg.finite_ok ? 1 : 0);
+        fflush(stdout);
+      }
+
+      float cuda_sum = 0, cuda_min = cuda_ms_vec[0], cuda_max = cuda_ms_vec[0];
+      double host_sum = 0, host_min = host_ms_vec[0], host_max = host_ms_vec[0];
+      int iters_sum = 0;
+      for (int i = 0; i < n_repeats; i++) {
+        cuda_sum += cuda_ms_vec[i];
+        if (cuda_ms_vec[i] < cuda_min) cuda_min = cuda_ms_vec[i];
+        if (cuda_ms_vec[i] > cuda_max) cuda_max = cuda_ms_vec[i];
+        host_sum += host_ms_vec[i];
+        if (host_ms_vec[i] < host_min) host_min = host_ms_vec[i];
+        if (host_ms_vec[i] > host_max) host_max = host_ms_vec[i];
+        iters_sum += executed_iters_vec[i];
+      }
+      float cuda_mean = cuda_sum / n_repeats;
+      double host_mean = host_sum / n_repeats;
+      int mean_executed_iters = iters_sum / n_repeats;
+      double cuda_us_per_iter = mean_executed_iters > 0 ? (cuda_mean * 1000.0) / mean_executed_iters : 0.0;
+      double host_us_per_iter = mean_executed_iters > 0 ? (host_mean * 1000.0) / mean_executed_iters : 0.0;
+
+      printf("FIXED_WORK_CG_SUMMARY: mean_cuda_ms=%.3f min_cuda_ms=%.3f max_cuda_ms=%.3f mean_host_ms=%.3f min_host_ms=%.3f max_host_ms=%.3f cuda_us_per_iter=%.3f host_us_per_iter=%.3f executed_iters=%d sloppy_mat_calls=%d reliable_mat_calls=%d reliable_updates=%d replay_resets=%d pipeline_fallbacks=%d finite_ok=%d flops_delta=%lu pre_replay_rel_res=%.6e\n",
+             cuda_mean, cuda_min, cuda_max, host_mean, host_min, host_max,
+             cuda_us_per_iter, host_us_per_iter, mean_executed_iters,
+             sloppy_mat_vec[0], reliable_mat_vec[0], reliable_up_vec[0], replay_reset_vec[0], pipeline_fb_vec[0],
+             all_finite ? 1 : 0, flops_vec[0], pre_replay_rel_res_vec[0]);
+      fflush(stdout);
+
+      if (op_iters > 0) {
+        ColorSpinorParam csParam(b_vecs[0]);
+        csParam.create = QUDA_NULL_FIELD_CREATE;
+        csParam.setPrecision(ip.cuda_prec_sloppy);
+        std::vector<ColorSpinorField> p_sloppy, Ap_sloppy;
+        resize(p_sloppy, n_rhs, csParam);
+        resize(Ap_sloppy, n_rhs, csParam);
+        blas::copy(p_sloppy, b_vecs);
+
+        for (int i = 0; i < 10; i++) {
+          diracSloppy->MdagM(Ap_sloppy, p_sloppy);
+        }
+        qudaDeviceSynchronize();
+
+        cudaEvent_t op_ev_start, op_ev_stop;
+        cudaEventCreate(&op_ev_start);
+        cudaEventCreate(&op_ev_stop);
+        qudaDeviceSynchronize();
+        struct timeval op_t0, op_t1;
+        gettimeofday(&op_t0, nullptr);
+        cudaEventRecord(op_ev_start);
+
+        for (int i = 0; i < op_iters; i++) {
+          diracSloppy->MdagM(Ap_sloppy, p_sloppy);
+        }
+
+        cudaEventRecord(op_ev_stop);
+        cudaEventSynchronize(op_ev_stop);
+        gettimeofday(&op_t1, nullptr);
+        float op_cuda_ms = 0.0f;
+        cudaEventElapsedTime(&op_cuda_ms, op_ev_start, op_ev_stop);
+        double op_host_ms = TDIFF(op_t0, op_t1) * 1000.0;
+        cudaEventDestroy(op_ev_start);
+        cudaEventDestroy(op_ev_stop);
+
+        double cuda_us_per_mdagm = (op_cuda_ms * 1000.0) / op_iters;
+        printf("FIXED_WORK_OP_SUMMARY: op_iters=%d n_rhs=%d cuda_event_ms=%.3f host_wall_ms=%.3f cuda_us_per_mdagm=%.3f cuda_us_per_mdagm_rhs=%.3f\n",
+               op_iters, n_rhs, op_cuda_ms, op_host_ms, cuda_us_per_mdagm, cuda_us_per_mdagm / n_rhs);
+        fflush(stdout);
+      }
+
+      g_fixed_work_cg.enabled = false;
+      const char *dump_prefix = getenv("QUDA_FIXED_DUMP_PREFIX");
+      if (dump_prefix && dump_prefix[0]) {
+        // All CG and operator timers have stopped. Run one additional MdagM on the same
+        // deterministic RHS, even when QUDA_FIXED_OP_ITERS=0, for operator comparisons.
+        ColorSpinorParam csParam(b_vecs[0]);
+        csParam.create = QUDA_NULL_FIELD_CREATE;
+        csParam.setPrecision(ip.cuda_prec_sloppy);
+        std::vector<ColorSpinorField> p_sloppy, Ap_sloppy;
+        resize(p_sloppy, n_rhs, csParam);
+        resize(Ap_sloppy, n_rhs, csParam);
+        blas::copy(p_sloppy, b_vecs);
+        diracSloppy->MdagM(Ap_sloppy, p_sloppy);
+        const cudaError_t status = cudaDeviceSynchronize();
+        if (status != cudaSuccess)
+          errorQuda("CUDA MdagM failed before fixed-work dump: %s", cudaGetErrorString(status));
+        dumpFixedWorkSpinors(dump_prefix, "x", x_vecs, ip, base_seed);
+        dumpFixedWorkSpinors(dump_prefix, "mdagm", Ap_sloppy, ip, base_seed);
+      }
+      delete dirac;
+      delete diracSloppy;
+      if (diracPre != diracSloppy) delete diracPre;
+      if (diracEig != diracPre) delete diracEig;
+      printf("=== FIXED_WORK_CG_PROBE_END (finite_ok=%d) ===\n", all_finite ? 1 : 0);
+      fflush(stdout);
+      return all_finite;
+    }
+
+    printf("=== MULTI_RHS_CG_PROBE_BEGIN (V_sites=%zu, tol=%.3e) ===\n", V_sites, ip.tol);
+    const int rhs_counts[4] = {1, 2, 4, 8};
+    const int n_repeats = 5;
+    double sec_per_rhs_1 = 0.0;
+    bool all_ok = true;
+
+    for (int idx = 0; idx < 4; idx++) {
+      int n_rhs = rhs_counts[idx];
+      std::vector<ColorSpinorField> b_vecs;
+      std::vector<ColorSpinorField> x_vecs;
+      b_vecs.reserve(n_rhs);
+      x_vecs.reserve(n_rhs);
+      for (int r = 0; r < n_rhs; r++) {
+        // Distinct independent Gaussian pseudofermion RHS phi^(r) = M^dag eta^(r) on shared gauge field U
+        unsigned long long s_r = base_seed + (unsigned long long)(r + 1) * 100003ULL;
+        ColorSpinorField phi_r = generateEOPseudofermion(ip, s_r);
+        ColorSpinorParam xParam(phi_r);
+        xParam.create = QUDA_ZERO_FIELD_CREATE;
+        b_vecs.push_back(std::move(phi_r));
+        x_vecs.emplace_back(xParam);
+      }
+
+      // Warm-up 1 call to ensure any multi-RHS kernel tuning is cached before timing
+      for (int r = 0; r < n_rhs; r++) blas::zero(x_vecs[r]);
+      ip.num_src = n_rhs;
+      ip.iter = 0;
+      solve(x_vecs, b_vecs, *dirac, *diracSloppy, *diracPre, *diracEig, ip);
+      qudaDeviceSynchronize();
+      saveTuneCache();
+
+      double total_sec = 0.0;
+      long long total_iters = 0;
+      double max_true_res = 0.0;
+
+      for (int rep = 0; rep < n_repeats; rep++) {
+        for (int r = 0; r < n_rhs; r++) blas::zero(x_vecs[r]);
+        ip.iter = 0;
+        qudaDeviceSynchronize();
+        struct timeval t0, t1;
+        gettimeofday(&t0, nullptr);
+        solve(x_vecs, b_vecs, *dirac, *diracSloppy, *diracPre, *diracEig, ip);
+        qudaDeviceSynchronize();
+        gettimeofday(&t1, nullptr);
+        total_sec += TDIFF(t0, t1);
+        total_iters += ip.iter;
+        for (int r = 0; r < n_rhs; r++) {
+          if (ip.true_res[r] > max_true_res) max_true_res = ip.true_res[r];
+          if (!std::isfinite(ip.true_res[r]) || ip.true_res[r] > ip.tol) all_ok = false;
+        }
+      }
+
+      double mean_solve_sec = total_sec / n_repeats;
+      double sec_per_rhs = mean_solve_sec / n_rhs;
+      if (n_rhs == 1) sec_per_rhs_1 = sec_per_rhs;
+      double speedup_vs_1rhs = (sec_per_rhs > 0.0) ? (sec_per_rhs_1 / sec_per_rhs) : 0.0;
+      double mean_iters = (double)total_iters / n_repeats;
+      double site_updates_per_sec_total = (V_sites * mean_iters * n_rhs) / mean_solve_sec;
+
+      printf("MULTI_RHS n_rhs=%d mean_solve_sec=%.6f sec_per_rhs=%.6f speedup_vs_1rhs=%.4fx mean_iters=%.1f max_true_res=%.6e site_iter_rhs_per_sec=%.3e peak_dev_mb=%.2f\n",
+             n_rhs, mean_solve_sec, sec_per_rhs, speedup_vs_1rhs, mean_iters, max_true_res,
+             site_updates_per_sec_total, (double)device_allocated_peak() / (1024.0 * 1024.0));
+      fflush(stdout);
+    }
+    printf("=== MULTI_RHS_CG_PROBE_END (all_ok=%d) ===\n", all_ok ? 1 : 0);
+
+    delete dirac;
+    delete diracSloppy;
+    if (diracPre != diracSloppy) delete diracPre;
+    if (diracEig != diracPre) delete diracEig;
+    return all_ok;
+  }
+
+} // namespace quda

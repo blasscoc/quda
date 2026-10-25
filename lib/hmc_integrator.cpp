@@ -379,10 +379,21 @@ namespace quda
     // 1. ghost pads: copy() fills only the local volume, the Dirac
     //    operators read the pads;
     gaugePrecise->exchangeGhost();
-    // 2. sloppy/precondition gauge copies (aliased at uniform precision);
-    if (gaugeSloppy && gaugeSloppy != gaugePrecise) gaugeSloppy->copy(*gaugePrecise);
-    if (gaugePrecondition && gaugePrecondition != gaugePrecise && gaugePrecondition != gaugeSloppy)
+    // 2. sloppy/precondition/refinement gauge copies and their ghost pads
+    //    (aliased at uniform precision, distinct at mixed precision / sloppy recon);
+    if (gaugeSloppy && gaugeSloppy != gaugePrecise) {
+      gaugeSloppy->copy(*gaugePrecise);
+      gaugeSloppy->exchangeGhost();
+    }
+    if (gaugePrecondition && gaugePrecondition != gaugePrecise && gaugePrecondition != gaugeSloppy) {
       gaugePrecondition->copy(*gaugePrecise);
+      gaugePrecondition->exchangeGhost();
+    }
+    if (gaugeRefinement && gaugeRefinement != gaugePrecise && gaugeRefinement != gaugeSloppy
+        && gaugeRefinement != gaugePrecondition) {
+      gaugeRefinement->copy(*gaugePrecise);
+      gaugeRefinement->exchangeGhost();
+    }
     // 3. the cached extended gauge (createCloverQuda and the gauge force
     //    read it; new_gauge = true forces the rebuild);
     lat_dim_t R;
@@ -438,6 +449,28 @@ namespace quda
     csParam.create = QUDA_ZERO_FIELD_CREATE;
     std::vector<ColorSpinorField> x(1, csParam);
     std::vector<ColorSpinorField> b(1, ColorSpinorField(phi)); // copy of phi
+
+    ColorSpinorField *getStoredBoundarySolution();
+    void setStoredBoundarySolution(const ColorSpinorField &sol);
+    void releaseStoredBoundarySolution();
+
+    const int final_kick_solve_idx = (hmc_param.integrator == QUDA_LEAPFROG_INTEGRATOR)
+                                       ? (hmc_param.n_steps + 1)
+                                       : (2 * hmc_param.n_steps + 1);
+    const bool reuse_boundary_mode = (inv_param.chrono_max_dim == 1 && (!tracking || !tracking->isActive()));
+    const bool is_first_kick = (reuse_boundary_mode && g_traj_cg_solves == 1 && getStoredBoundarySolution() != nullptr);
+    const bool is_final_kick = (reuse_boundary_mode && g_traj_cg_solves == final_kick_solve_idx);
+
+    if (reuse_boundary_mode) {
+      ip.chrono_make_resident = 0;
+      ip.chrono_use_resident = 0;
+      if (is_first_kick) {
+        x[0] = *getStoredBoundarySolution();
+        ip.use_init_guess = QUDA_USE_INIT_GUESS_YES;
+      } else {
+        ip.use_init_guess = QUDA_USE_INIT_GUESS_NO;
+      }
+    }
 
     // Enable QUDA's native chronological forecasting when eigentracking is active.
     if (tracking && tracking->isActive()) {
@@ -563,6 +596,14 @@ namespace quda
         g_traj_cg_solves++;
       }
 
+      if (reuse_boundary_mode) {
+        if (is_first_kick) {
+          releaseStoredBoundarySolution();
+        } else if (is_final_kick) {
+          setStoredBoundarySolution(x[0]);
+        }
+      }
+
       if (tracking && tracking->isActive()) {
         auto vecs = takeRitzVectors(cgTracker);
         if (!vecs.empty()) tracking->stashRitzVectors(std::move(vecs));
@@ -591,13 +632,10 @@ namespace quda
     logQuda(QUDA_VERBOSE, "Integrator::drift: dt=%e\n", dt);
 
     // Gauge update: U_out = exp(dt * P) * U_in
-    // Must use separate in/out fields — in-place update is a race condition.
-    GaugeFieldParam gParam(*gaugePrecise);
-    gParam.create = QUDA_NULL_FIELD_CREATE;
-    GaugeField u_out(gParam);
-    updateGaugeField(u_out, dt, *gaugePrecise, momResident, false, true);
+    // UpdateGauge reads link(dir, x, parity) into registers and writes out(dir, x, parity) once:
+    // in-place update on *gaugePrecise is race-free and avoids temporary allocation + copy.
+    updateGaugeField(*gaugePrecise, dt, *gaugePrecise, momResident, false, true);
 
-    gaugePrecise->copy(u_out);
     hmcRefreshResidentGaugeState(inv_param);
     getProfile().TPSTOP(QUDA_PROFILE_COMPUTE);
   }

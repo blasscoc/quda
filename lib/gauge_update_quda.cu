@@ -10,7 +10,7 @@ namespace quda {
    class UpdateGaugeField : public TunableKernel3D {
     using real = typename mapper<Float>::type;
     static constexpr QudaReconstructType recon_m = QUDA_RECONSTRUCT_10;
-    static constexpr int N = 8; // degree of exponential expansion
+    static constexpr int N = 18; // degree of exponential expansion (machine-precision SU(3) exp)
     GaugeField &out;
     const GaugeField &in;
     const GaugeField &mom;
@@ -50,6 +50,11 @@ namespace quda {
       }
     } // apply
 
+    // In-place updates alias the input: tuning trials must not evolve the
+    // physical gauge. Restore the output after tuning before the real launch.
+    void preTune() { out.backup(); }
+    void postTune() { out.restore(); }
+
     long long flops() const {
       const int Nc = nColor;
       return in.Geometry()*in.Volume()*N*(Nc*Nc*2 +                 // scalar-matrix multiply
@@ -62,12 +67,13 @@ namespace quda {
 
   void updateGaugeField(GaugeField &out, double dt, const GaugeField& in, const GaugeField& mom, bool conj_mom, bool exact)
   {
+    (void)exact;
     getProfile().TPSTART(QUDA_PROFILE_COMPUTE);
     checkPrecision(out, in, mom);
     checkLocation(out, in, mom);
     checkReconstruct(out, in);
     if (mom.Reconstruct() != QUDA_RECONSTRUCT_10) errorQuda("Reconstruction type %d not supported", mom.Reconstruct());
-    instantiate<UpdateGaugeField,ReconstructNo12>(out, in, mom, dt, conj_mom, exact);
+    instantiate<UpdateGaugeField,ReconstructNo12>(out, in, mom, dt, conj_mom, false);
     getProfile().TPSTOP(QUDA_PROFILE_COMPUTE);
   }
 

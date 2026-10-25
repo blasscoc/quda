@@ -17,8 +17,31 @@
 #include <reliable_updates.h>
 #include <invert_x_update.h>
 #include <cg_tracker.h>
+#include <chrono>
+#include <cuda_runtime.h>
+#include <tune_quda.h>
 
 namespace quda {
+
+  struct FixedWorkCGCounters {
+    bool enabled = false;
+    int target_iters = 0;
+    int k_rel = 0;
+    int k_replay = 40;
+    int executed_iters = 0;
+    int sloppy_mat_calls = 0;
+    int reliable_mat_calls = 0;
+    int reliable_updates = 0;
+    int replay_resets = 0;
+    int pipeline_fallbacks = 0;
+    bool finite_ok = true;
+    uint64_t flops_delta = 0;
+    float cuda_event_ms = 0.0f;
+    double host_wall_ms = 0.0;
+    double pre_replay_rel_res = 0.0;
+  };
+
+  FixedWorkCGCounters g_fixed_work_cg;
 
   CG::CG(const DiracMatrix &mat, const DiracMatrix &matSloppy, const DiracMatrix &matPrecon, const DiracMatrix &matEig,
          SolverParam &param) :
@@ -49,8 +72,8 @@ namespace quda {
         resize(r_sloppy, b.size(), csParam);
       } else {
         create_alias(r_sloppy, r);
+        param.use_sloppy_partial_accumulator = false;
       }
-      param.use_sloppy_partial_accumulator = false; // hard-code precise accumulation
       if (param.use_sloppy_partial_accumulator) resize(x_sloppy, b.size(), csParam);
 
       init = true;
@@ -100,6 +123,9 @@ namespace quda {
 
     // whether to select alternative reliable updates
     bool alternative_reliable = param.use_alternative_reliable;
+    if (const char *env_alt = getenv("QUDA_CG_ALT_RELIABLE")) {
+      if (atoi(env_alt) != 0) alternative_reliable = true;
+    }
 
     auto b2 = blas::norm2(b);
 
@@ -127,7 +153,11 @@ namespace quda {
       }
     }
 
-    const double u = precisionEpsilon(param.precision_sloppy);
+    double u = precisionEpsilon(param.precision_sloppy);
+    if (const char *env_eps = getenv("QUDA_CG_SLOPPY_EPS")) {
+      double parsed_eps = atof(env_eps);
+      if (parsed_eps > 0.0) u = parsed_eps;
+    }
     const double uhigh = precisionEpsilon(); // solver precision
 
     double Anorm = 0.0;
@@ -232,10 +262,34 @@ namespace quda {
       return alpha;
     };
 
+    const bool fw_mode = g_fixed_work_cg.enabled && !param.is_preconditioner;
+    cudaEvent_t fw_ev_start = nullptr, fw_ev_stop = nullptr;
+    uint64_t fw_flops_t0 = 0;
+    std::chrono::steady_clock::time_point fw_host_t0;
+    if (fw_mode) {
+      param.maxiter = g_fixed_work_cg.target_iters;
+      converged = false;
+      g_fixed_work_cg.executed_iters = 0;
+      g_fixed_work_cg.sloppy_mat_calls = 0;
+      g_fixed_work_cg.reliable_mat_calls = 0;
+      g_fixed_work_cg.reliable_updates = 0;
+      g_fixed_work_cg.replay_resets = 0;
+      g_fixed_work_cg.pipeline_fallbacks = 0;
+      g_fixed_work_cg.finite_ok = true;
+      g_fixed_work_cg.pre_replay_rel_res = 0.0;
+      cudaEventCreate(&fw_ev_start);
+      cudaEventCreate(&fw_ev_stop);
+      qudaDeviceSynchronize();
+      fw_flops_t0 = Tunable::flops_global();
+      fw_host_t0 = std::chrono::steady_clock::now();
+      cudaEventRecord(fw_ev_start);
+    }
+
     while ( !converged && k < param.maxiter ) {
       auto p = get_p(x_update_batch);
       auto p_next = get_p(x_update_batch, true);
       matSloppy(Ap, p);
+      if (fw_mode) g_fixed_work_cg.sloppy_mat_calls++;
 
       vector<double> sigma(b.size());
 
@@ -267,6 +321,7 @@ namespace quda {
           r2 = blas::axpyNorm(-get_alpha(x_update_batch), Ap, r_sloppy);
           sigma = r2;
           breakdown = true;
+          if (fw_mode) g_fixed_work_cg.pipeline_fallbacks++;
         }
 
         r2 = sigma;
@@ -295,7 +350,11 @@ namespace quda {
       // reliable update conditions
       ru.update_rNorm(sqrt(r2[0]));
 
-      if (advanced_feature) {
+      if (fw_mode) {
+        bool do_rel = (g_fixed_work_cg.k_rel > 0) && (((k + 1) % g_fixed_work_cg.k_rel) == 0);
+        ru.updateX = do_rel ? 1 : 0;
+        ru.updateR = 0;
+      } else if (advanced_feature) {
         ru.evaluate(r2_old[0]);
         // force a reliable update if we are within target tolerance (only if doing reliable updates)
         if (convergenceL2(r2, stop) && param.delta >= param.tol) ru.set_updateX();
@@ -349,6 +408,10 @@ namespace quda {
         blas::xpy(x_sloppy, y); // swap these around?
 
         mat(r, y);       //  here we can use x as tmp
+        if (fw_mode) {
+          g_fixed_work_cg.reliable_mat_calls++;
+          g_fixed_work_cg.reliable_updates++;
+        }
         r2 = blas::xmyNorm(b, r);
 
         if (param.deflate && sqrt(r2[0]) < ru.maxr_deflate * param.tol_restart) {
@@ -357,6 +420,7 @@ namespace quda {
 
           // Compute r_defl = RHS - A * LHS
           mat(r, y);
+          if (fw_mode) g_fixed_work_cg.reliable_mat_calls++;
           r2 = blas::xmyNorm(b, r);
 
           ru.update_maxr_deflate(r2[0]);
@@ -367,7 +431,7 @@ namespace quda {
 
         if (advanced_feature) { ru.update_norm(r2[0], y[0]); }
 
-        if (advanced_feature) {
+        if (!fw_mode && advanced_feature) {
           // needed as a "dummy parameter" to reliable_break.
           bool L2breakdown = false;
           if (ru.reliable_break(r2[0], stop[0], L2breakdown, 0)) { break; }
@@ -389,10 +453,11 @@ namespace quda {
 
       breakdown = false;
       k++;
+      if (fw_mode) g_fixed_work_cg.executed_iters = k;
 
-      PrintStats("CG", k, r2, b2);
+      if (!fw_mode) PrintStats("CG", k, r2, b2);
       // check convergence
-      converged = convergenceL2(r2, stop);
+      converged = fw_mode ? false : convergenceL2(r2, stop);
 
       // if we have converged and need to update any trailing solutions
       for (auto i = 0u; i < b.size(); i++) {
@@ -406,10 +471,61 @@ namespace quda {
           ++x_update_batch[i];
         }
       }
+
+      if (fw_mode) {
+        for (auto i = 0u; i < b.size(); i++) {
+          if (!std::isfinite(r2[i]) || !std::isfinite(pAp[i]) || r2[i] <= 0.0 || pAp[i] <= 0.0) {
+            g_fixed_work_cg.finite_ok = false;
+          }
+        }
+        if (g_fixed_work_cg.k_replay > 0 && k == g_fixed_work_cg.k_replay && b2[0] > 0.0) {
+          g_fixed_work_cg.pre_replay_rel_res = sqrt(r2[0] / b2[0]);
+        }
+        if (g_fixed_work_cg.k_replay > 0 && (k % g_fixed_work_cg.k_replay) == 0 && k < param.maxiter) {
+          for (auto i = 0u; i < b.size(); i++) {
+            r2[i] = b2[i];
+            r2_old[i] = b2[i];
+            x_update_batch[i].reset();
+          }
+          auto p_curr = get_p(x_update_batch);
+          blas::copy(r_sloppy, b);
+          blas::copy(p_curr, r_sloppy);
+          blas::zero(x_sloppy);
+          blas::zero(y);
+          ru.steps_since_reliable = 1;
+          ru.r0Norm = sqrt(r2[0]);
+          ru.updateX = 0;
+          ru.updateR = 0;
+          g_fixed_work_cg.replay_resets++;
+        }
+      }
     }
 
-    blas::copy(x, x_sloppy);
-    blas::xpy(y, x);
+    if (fw_mode) {
+      cudaEventRecord(fw_ev_stop);
+      cudaEventSynchronize(fw_ev_stop);
+      auto fw_host_t1 = std::chrono::steady_clock::now();
+      uint64_t fw_flops_t1 = Tunable::flops_global();
+      g_fixed_work_cg.flops_delta = fw_flops_t1 - fw_flops_t0;
+      cudaEventElapsedTime(&g_fixed_work_cg.cuda_event_ms, fw_ev_start, fw_ev_stop);
+      g_fixed_work_cg.host_wall_ms = std::chrono::duration<double, std::milli>(fw_host_t1 - fw_host_t0).count();
+      cudaEventDestroy(fw_ev_start);
+      cudaEventDestroy(fw_ev_stop);
+    }
+
+    if (converged && ru.steps_since_reliable == 0) {
+      blas::copy(x, y);
+    } else {
+      blas::copy(x, x_sloppy);
+      blas::xpy(y, x);
+    }
+
+    if (fw_mode) {
+      auto x2 = blas::norm2(x);
+      for (auto i = 0u; i < b.size(); i++) {
+        if (!std::isfinite(x2[i])) g_fixed_work_cg.finite_ok = false;
+      }
+    }
 
     if (!param.is_preconditioner) {
       getProfile().TPSTOP(QUDA_PROFILE_COMPUTE);
@@ -417,23 +533,35 @@ namespace quda {
 
       param.iter += k;
 
-      if (k == param.maxiter) warningQuda("Exceeded maximum iterations %d", param.maxiter);
+      if (!fw_mode && k == param.maxiter) warningQuda("Exceeded maximum iterations %d", param.maxiter);
     }
 
     logQuda(QUDA_VERBOSE, "CG: Reliable updates = %d\n", ru.rUpdate);
 
     if (advanced_feature && param.compute_true_res) {
-      // compute the true residuals
-      mat(r, x);
-      auto true_r2 = blas::xmyNorm(b, r);
-      auto hq = blas::HeavyQuarkResidualNorm(x, r);
+      // compute the true residuals (reuse exact r = b - A*y and r2 = ||r||^2 if reliable update just ran on final step)
+      auto true_r2 = r2;
+      if (!(converged && ru.steps_since_reliable == 0 && !param.deflate)) {
+        mat(r, x);
+        true_r2 = blas::xmyNorm(b, r);
+      }
       for (auto i = 0u; i < b.size(); i++) {
         param.true_res[i] = sqrt(true_r2[i] / b2[i]);
-        param.true_res_hq[i] = sqrt(hq[i].z);
+        param.true_res_hq[i] = 0.0;
+      }
+      if (use_heavy_quark_res) {
+        auto hq = blas::HeavyQuarkResidualNorm(x, r);
+        for (auto i = 0u; i < b.size(); i++) param.true_res_hq[i] = sqrt(hq[i].z);
       }
     }
 
-    PrintSummary("CG", k, r2, b2, stop);
+    if (getenv("QUDA_LOG_CG_STATS") && atoi(getenv("QUDA_LOG_CG_STATS")) != 0) {
+      printf("[CG_SOLVE_SUMMARY] rhs=%zu iter=%d reliable_updates=%d true_res_0=%.6e\n",
+             b.size(), k, ru.rUpdate, param.true_res[0]);
+      fflush(stdout);
+    }
+
+    if (!fw_mode) PrintSummary("CG", k, r2, b2, stop);
 
     if (!param.is_preconditioner) getProfile().TPSTOP(QUDA_PROFILE_EPILOGUE);
 
