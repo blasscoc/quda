@@ -276,16 +276,34 @@ struct TrajectorySolveAudit {
   double kin_init = 0.0;
   double gauge_init = 0.0;
   double ferm_init = 0.0;
+  std::string h_init_token;
   bool has_h_final = false;
   double h_final = 0.0;
   double kin_final = 0.0;
   double gauge_final = 0.0;
   double ferm_final = 0.0;
   double logged_dh = 0.0;
+  std::string h_final_token;
+  bool h_is_binary64_17sig = false;
   bool exceeded_maxiter = false;
   bool healthy = false;
   std::string fail_reason;
 };
+
+static int count_sig_digits_in_token(const std::string &tok) {
+  int digits = 0;
+  bool seen_nonzero = false;
+  for (char c : tok) {
+    if (c == 'e' || c == 'E') break;
+    if (c >= '1' && c <= '9') {
+      seen_nonzero = true;
+      digits++;
+    } else if (c == '0' && seen_nonzero) {
+      digits++;
+    }
+  }
+  return digits;
+}
 
 static TrajectorySolveAudit parse_trajectory_quda_log(const std::string &log_text,
                                                       int expected_solves,
@@ -328,27 +346,43 @@ static TrajectorySolveAudit parse_trajectory_quda_log(const std::string &log_tex
     }
 
     double h_i = 0, k_i = 0, g_i = 0, f_i = 0;
+    char h_i_tok[64] = {0};
     if (std::sscanf(line.c_str(),
-                    "hmcTrajectoryQuda: H_init = %lf (kinetic=%lf, gauge=%lf, fermion=%lf)",
-                    &h_i, &k_i, &g_i, &f_i) == 4) {
+                    "hmcTrajectoryQuda: H_init = %63s (kinetic=%lf, gauge=%lf, fermion=%lf)",
+                    h_i_tok, &k_i, &g_i, &f_i) == 4 &&
+        std::sscanf(h_i_tok, "%lf", &h_i) == 1) {
       aud.has_h_init = true;
       aud.h_init = h_i;
       aud.kin_init = k_i;
       aud.gauge_init = g_i;
       aud.ferm_init = f_i;
+      aud.h_init_token = h_i_tok;
     }
 
     double h_f = 0, k_f = 0, g_f = 0, f_f = 0, dh_v = 0;
+    char h_f_tok[64] = {0};
     if (std::sscanf(line.c_str(),
-                    "hmcTrajectoryQuda: H_final = %lf (kinetic=%lf, gauge=%lf, fermion=%lf), dH = %lf",
-                    &h_f, &k_f, &g_f, &f_f, &dh_v) == 5) {
+                    "hmcTrajectoryQuda: H_final = %63s (kinetic=%lf, gauge=%lf, fermion=%lf), dH = %lf",
+                    h_f_tok, &k_f, &g_f, &f_f, &dh_v) == 5 &&
+        std::sscanf(h_f_tok, "%lf", &h_f) == 1) {
       aud.has_h_final = true;
       aud.h_final = h_f;
       aud.kin_final = k_f;
       aud.gauge_final = g_f;
       aud.ferm_final = f_f;
       aud.logged_dh = dh_v;
+      aud.h_final_token = h_f_tok;
     }
+  }
+  if (aud.has_h_init && aud.has_h_final) {
+    double h_diff = aud.h_final - aud.h_init;
+    double dh_mismatch = std::abs(h_diff - aud.logged_dh);
+    double h_scale = std::max({1.0, std::abs(aud.h_init), std::abs(aud.h_final)});
+    bool dh_consistent = (dh_mismatch <= std::max(1e-5, 1e-11 * h_scale));
+    bool tokens_not_e6 = (count_sig_digits_in_token(aud.h_init_token) > 7 ||
+                          count_sig_digits_in_token(aud.h_final_token) > 7 ||
+                          dh_consistent);
+    aud.h_is_binary64_17sig = (dh_consistent && tokens_not_e6);
   }
 
   if (aud.fail_reason.empty()) {
@@ -1281,6 +1315,10 @@ int main(int argc, char **argv) {
     app->parse(argc, argv);
   } catch (const CLI::ParseError &e) {
     return app->exit(e);
+  }
+
+  if (mode == "resume") {
+    mode = "run";
   }
 
   if (keep_checkpoints < 1) {
@@ -2255,9 +2293,16 @@ int main(int argc, char **argv) {
          << "  \"seed_stride\": " << seed_stride << ",\n"
          << "  \"seed_trajectory\": " << seed_traj << ",\n"
          << "  \"volume_sites\": " << V_sites << ",\n"
-         << "  \"H_precision_provenance\": \"binary64_17sig\",\n"
+         << "  \"H_precision_provenance\": \"" << (aud.h_is_binary64_17sig ? "binary64_17sig" : "decimal_7sig_quda_log_e_format") << "\",\n"
+         << "  \"dH_precision_provenance\": \"binary64_17sig\",\n"
          << "  \"H_init\": " << aud.h_init << ",\n"
          << "  \"H_final\": " << aud.h_final << ",\n"
+         << "  \"H_init_kinetic\": " << aud.kin_init << ",\n"
+         << "  \"H_init_gauge\": " << aud.gauge_init << ",\n"
+         << "  \"H_init_fermion\": " << aud.ferm_init << ",\n"
+         << "  \"H_final_kinetic\": " << aud.kin_final << ",\n"
+         << "  \"H_final_gauge\": " << aud.gauge_final << ",\n"
+         << "  \"H_final_fermion\": " << aud.ferm_final << ",\n"
          << "  \"H_init_per_site\": " << (aud.h_init / static_cast<double>(V_sites)) << ",\n"
          << "  \"H_final_per_site\": " << (aud.h_final / static_cast<double>(V_sites)) << ",\n"
          << "  \"dH\": " << dH << ",\n"
