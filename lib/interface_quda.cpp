@@ -5154,8 +5154,8 @@ double hmcTrajectoryQuda(void *h_gauge, void *h_momentum, QudaHMCParam *hmc_para
   double fermion_action_init = computeFermionAction(phi, *inv_param, getEigenTrackingInstance());
   double H_init = kinetic_init + gauge_action_init + fermion_action_init;
 
-  logQuda(QUDA_SUMMARIZE, "hmcTrajectoryQuda: H_init = %e (kinetic=%e, gauge=%e, fermion=%e)\n", H_init, kinetic_init,
-          gauge_action_init, fermion_action_init);
+  logQuda(QUDA_SUMMARIZE, "hmcTrajectoryQuda: H_init = %.17g (kinetic=%.17g, gauge=%.17g, fermion=%.17g)\n", H_init,
+          kinetic_init, gauge_action_init, fermion_action_init);
 
   // --- Eigentracking initialization ---
   quda::EigenTrackingState *tracking = nullptr;
@@ -5256,8 +5256,8 @@ double hmcTrajectoryQuda(void *h_gauge, void *h_momentum, QudaHMCParam *hmc_para
   double H_final = kinetic_final + gauge_action_final + fermion_action_final;
 
   double dH = H_final - H_init;
-  logQuda(QUDA_SUMMARIZE, "hmcTrajectoryQuda: H_final = %e (kinetic=%e, gauge=%e, fermion=%e), dH = %e\n", H_final,
-          kinetic_final, gauge_action_final, fermion_action_final, dH);
+  logQuda(QUDA_SUMMARIZE, "hmcTrajectoryQuda: H_final = %.17g (kinetic=%.17g, gauge=%.17g, fermion=%.17g), dH = %.17g\n",
+          H_final, kinetic_final, gauge_action_final, fermion_action_final, dH);
   profileHMC.TPSTOP(QUDA_PROFILE_COMPUTE);
 
   // ---- EPILOGUE: copy results back to host, release transient state. ----

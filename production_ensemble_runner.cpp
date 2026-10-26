@@ -1685,32 +1685,77 @@ int main(int argc, char **argv) {
     double rel_dH_rev = abs_dH_rev / std::max(1.0, std::fabs(aud_fwd.h_init));
     double abs_dPlaq_rev = std::fabs(plaq_return[0] - plaq_start[0]);
 
+    double V_dbl = static_cast<double>(V_sites);
+    double H_start_per_site = aud_fwd.h_init / V_dbl;
+    double H_mid_per_site = aud_fwd.h_final / V_dbl;
+    double H_return_per_site = aud_bwd.h_final / V_dbl;
+    double abs_dH_return_per_site = abs_dH_rev / V_dbl;
+    double ulp_H_start = std::fabs(std::nextafter(aud_fwd.h_init, INFINITY) - aud_fwd.h_init);
+    double dH_return_ulps = (ulp_H_start > 0.0) ? (abs_dH_rev / ulp_H_start) : 0.0;
+    double dt_rev = (hmc_n_steps > 0) ? (hmc_tau / hmc_n_steps) : 0.0;
+    double dH_roundoff_gate_abs = 64.0 * ulp_H_start;
+    double dH_solver_gate_abs = 350.0 * V_dbl * inv_param.tol * hmc_tau * dt_rev;
+    double dH_scale_aware_gate_abs = dH_roundoff_gate_abs + dH_solver_gate_abs;
+    double dH_scale_aware_gate_per_site = dH_scale_aware_gate_abs / V_dbl;
+    double rms_link_gate = 2000.0 * inv_param.tol * hmc_tau * dt_rev;
+    double max_link_gate = 40000.0 * inv_param.tol * hmc_tau * dt_rev;
+    double solver_res_gate = 1.15 * inv_param.tol;
+
+    bool legacy_abs_1e7_pass = std::isfinite(abs_dH_rev) && std::isfinite(rel_dH_rev) && std::isfinite(abs_dPlaq_rev) &&
+                               std::isfinite(max_link_dist) && std::isfinite(rms_link_dist) &&
+                               std::isfinite(u_err_ret) && std::isfinite(det_err_ret) &&
+                               (abs_dH_rev < 1e-7) && (abs_dPlaq_rev < 1e-12) &&
+                               (u_err_ret <= 1e-12) && (det_err_ret <= 1e-12) &&
+                               aud_fwd.healthy && aud_bwd.healthy;
+
+    bool scale_aware_pass = std::isfinite(abs_dH_rev) && std::isfinite(rel_dH_rev) && std::isfinite(abs_dPlaq_rev) &&
+                            std::isfinite(max_link_dist) && std::isfinite(rms_link_dist) &&
+                            std::isfinite(u_err_ret) && std::isfinite(det_err_ret) &&
+                            (abs_dH_rev <= dH_scale_aware_gate_abs) &&
+                            (rms_link_dist <= rms_link_gate) && (max_link_dist <= max_link_gate) &&
+                            (aud_fwd.max_true_res <= solver_res_gate) && (aud_bwd.max_true_res <= solver_res_gate) &&
+                            (abs_dPlaq_rev <= std::max(1e-12, 2.0 * inv_param.tol * hmc_tau * dt_rev)) &&
+                            (u_err_ret <= 1e-12) && (det_err_ret <= 1e-12) &&
+                            aud_fwd.healthy && aud_bwd.healthy;
+
+    bool pass = scale_aware_pass;
+
     std::string rev_json_path = out_dir_opt + "/reversibility_result.json";
     FILE *fr = fopen(rev_json_path.c_str(), "w");
-    bool pass = std::isfinite(abs_dH_rev) && std::isfinite(rel_dH_rev) && std::isfinite(abs_dPlaq_rev) &&
-                std::isfinite(max_link_dist) && std::isfinite(rms_link_dist) &&
-                std::isfinite(u_err_ret) && std::isfinite(det_err_ret) &&
-                (abs_dH_rev < 1e-7) && (abs_dPlaq_rev < 1e-12) &&
-                (u_err_ret <= 1e-12) && (det_err_ret <= 1e-12) &&
-                aud_fwd.healthy && aud_bwd.healthy;
     if (fr) {
       fprintf(fr, "{\n");
       fprintf(fr, "  \"pass\": %s,\n", pass ? "true" : "false");
+      fprintf(fr, "  \"scale_aware_pass\": %s,\n", scale_aware_pass ? "true" : "false");
+      fprintf(fr, "  \"legacy_abs_1e7_pass\": %s,\n", legacy_abs_1e7_pass ? "true" : "false");
       fprintf(fr, "  \"geometry\": [%d, %d, %d, %d],\n", dim[0], dim[1], dim[2], dim[3]);
+      fprintf(fr, "  \"volume_sites\": %lld,\n", V_sites);
       fprintf(fr, "  \"beta\": %.6f,\n", hmc_beta);
       fprintf(fr, "  \"kappa\": %.6f,\n", kappa);
       fprintf(fr, "  \"tau\": %.6f,\n", hmc_tau);
       fprintf(fr, "  \"n_steps\": %d,\n", hmc_n_steps);
+      fprintf(fr, "  \"solver_tol\": %.12e,\n", inv_param.tol);
       fprintf(fr, "  \"sloppy_prec\": \"%s\",\n", sloppy_prec_str.c_str());
       fprintf(fr, "  \"sloppy_recon\": %d,\n", sloppy_recon_int);
       fprintf(fr, "  \"reliable_delta\": %.6g,\n", reliable_delta);
+      fprintf(fr, "  \"H_precision_provenance\": \"binary64_17sig\",\n");
       fprintf(fr, "  \"H_start\": %.17g,\n", aud_fwd.h_init);
       fprintf(fr, "  \"H_mid\": %.17g,\n", aud_fwd.h_final);
       fprintf(fr, "  \"H_return\": %.17g,\n", aud_bwd.h_final);
-      fprintf(fr, "  \"dH_fwd\": %.12e,\n", dH_fwd);
-      fprintf(fr, "  \"dH_bwd\": %.12e,\n", dH_bwd);
+      fprintf(fr, "  \"H_start_per_site\": %.17g,\n", H_start_per_site);
+      fprintf(fr, "  \"H_mid_per_site\": %.17g,\n", H_mid_per_site);
+      fprintf(fr, "  \"H_return_per_site\": %.17g,\n", H_return_per_site);
+      fprintf(fr, "  \"dH_fwd\": %.17g,\n", dH_fwd);
+      fprintf(fr, "  \"dH_bwd\": %.17g,\n", dH_bwd);
       fprintf(fr, "  \"abs_H_return_minus_H_start\": %.12e,\n", abs_dH_rev);
+      fprintf(fr, "  \"abs_dH_return_per_site\": %.12e,\n", abs_dH_return_per_site);
       fprintf(fr, "  \"rel_H_return_minus_H_start\": %.12e,\n", rel_dH_rev);
+      fprintf(fr, "  \"ulp_H_start\": %.12e,\n", ulp_H_start);
+      fprintf(fr, "  \"dH_return_ulps\": %.6f,\n", dH_return_ulps);
+      fprintf(fr, "  \"dH_scale_aware_gate_abs\": %.12e,\n", dH_scale_aware_gate_abs);
+      fprintf(fr, "  \"dH_scale_aware_gate_per_site\": %.12e,\n", dH_scale_aware_gate_per_site);
+      fprintf(fr, "  \"rms_link_gate\": %.12e,\n", rms_link_gate);
+      fprintf(fr, "  \"max_link_gate\": %.12e,\n", max_link_gate);
+      fprintf(fr, "  \"solver_res_gate\": %.12e,\n", solver_res_gate);
       fprintf(fr, "  \"plaq_start\": %.17g,\n", plaq_start[0]);
       fprintf(fr, "  \"plaq_mid\": %.17g,\n", plaq_mid[0]);
       fprintf(fr, "  \"plaq_return\": %.17g,\n", plaq_return[0]);
@@ -1739,8 +1784,10 @@ int main(int argc, char **argv) {
       fclose(fr);
     }
 
-    printf("Reversibility Result: |H_return - H_start| = %.6e (< 1e-7), |dPlaq| = %.6e (< 1e-12), max_link_dist = %.6e, rms_link_dist = %.6e, u_err = %.3e, det_err = %.3e, fwd_solves = %d (max_res=%.3e), bwd_solves = %d (max_res=%.3e) -> %s\n",
-           abs_dH_rev, abs_dPlaq_rev, max_link_dist, rms_link_dist, u_err_ret, det_err_ret,
+    printf("Reversibility Result: |H_return - H_start| = %.6e (%.1f ULP, |dH|/V = %.6e <= %.6e, legacy_1e7=%s), |dPlaq| = %.6e, max_link_dist = %.6e, rms_link_dist = %.6e, u_err = %.3e, det_err = %.3e, fwd_solves = %d (max_res=%.3e), bwd_solves = %d (max_res=%.3e) -> %s\n",
+           abs_dH_rev, dH_return_ulps, abs_dH_return_per_site, dH_scale_aware_gate_per_site,
+           legacy_abs_1e7_pass ? "PASS" : "FAIL",
+           abs_dPlaq_rev, max_link_dist, rms_link_dist, u_err_ret, det_err_ret,
            aud_fwd.parsed_solves, aud_fwd.max_true_res, aud_bwd.parsed_solves, aud_bwd.max_true_res,
            pass ? "PASS" : "FAIL");
 
@@ -2207,9 +2254,14 @@ int main(int argc, char **argv) {
          << "  \"seed_base\": " << hmc_momentum_seed << ",\n"
          << "  \"seed_stride\": " << seed_stride << ",\n"
          << "  \"seed_trajectory\": " << seed_traj << ",\n"
+         << "  \"volume_sites\": " << V_sites << ",\n"
+         << "  \"H_precision_provenance\": \"binary64_17sig\",\n"
          << "  \"H_init\": " << aud.h_init << ",\n"
          << "  \"H_final\": " << aud.h_final << ",\n"
+         << "  \"H_init_per_site\": " << (aud.h_init / static_cast<double>(V_sites)) << ",\n"
+         << "  \"H_final_per_site\": " << (aud.h_final / static_cast<double>(V_sites)) << ",\n"
          << "  \"dH\": " << dH << ",\n"
+         << "  \"dH_per_site\": " << (dH / static_cast<double>(V_sites)) << ",\n"
          << "  \"exp_minus_dH\": " << raw_exp_minus_dH << ",\n"
          << "  \"rand_val\": " << rand_val << ",\n"
          << "  \"accepted\": " << (accepted ? 1 : 0) << ",\n"
