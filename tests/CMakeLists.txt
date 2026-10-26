@@ -1926,3 +1926,12 @@ endif()
 add_test(NAME tune_test
          COMMAND  ${QUDA_CTEST_LAUNCH} $<TARGET_FILE:tune_test> ${MPIEXEC_POSTFLAGS}
                    --gtest_output=xml:tune_test.xml)
+
+# Standalone periodic QDP gauge tiler and production HMC ensemble runner
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tile_gauge.cpp")
+  add_executable(tile_gauge tile_gauge.cpp)
+  target_link_libraries(tile_gauge PRIVATE OpenSSL::Crypto)
+endif()
+if(EXISTS "${CMAKE_SOURCE_DIR}/production_ensemble_runner.cpp")
+  quda_add_executable(production_ensemble_runner "${CMAKE_SOURCE_DIR}/production_ensemble_runner.cpp" LIBS OpenSSL::Crypto)
+endif()

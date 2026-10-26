@@ -14,8 +14,11 @@
 #include <algorithm>
 #include <unistd.h>
 #include <fcntl.h>
+#include <dirent.h>
 #include <errno.h>
+#include <signal.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <sys/wait.h>
 #include <openssl/evp.h>
 #ifdef _OPENMP
@@ -23,6 +26,7 @@
 #endif
 
 #include <quda.h>
+#include <malloc_quda.h>
 #include <gauge_field.h>
 #include <hmc_quda.h>
 #include "command_line_params.h"
@@ -39,6 +43,22 @@ namespace quda {
   void integratorResetCGStats();
   int integratorCGIters();
   int integratorCGSolves();
+}
+
+static void fadvise_dontneed_fd(int fd, off_t len = 0) {
+  if (fd >= 0) {
+#if defined(POSIX_FADV_DONTNEED)
+    (void)posix_fadvise(fd, 0, len, POSIX_FADV_DONTNEED);
+#endif
+  }
+}
+
+static unsigned long long get_fs_free_bytes(const std::string &path) {
+  struct statvfs st;
+  if (statvfs(path.c_str(), &st) != 0) {
+    return 0ULL;
+  }
+  return (unsigned long long)st.f_bavail * (unsigned long long)st.f_frsize;
 }
 
 static std::string compute_sha256_buffer(const void *data, size_t len) {
@@ -64,10 +84,15 @@ static std::string compute_sha256_file(const std::string &filepath) {
   EVP_MD_CTX *ctx = EVP_MD_CTX_new();
   const EVP_MD *md = EVP_sha256();
   EVP_DigestInit_ex(ctx, md, NULL);
-  unsigned char buffer[8192];
+  unsigned char buffer[65536];
   size_t bytes = 0;
+  size_t total_read = 0;
   while ((bytes = fread(buffer, 1, sizeof(buffer), f)) != 0) {
     EVP_DigestUpdate(ctx, buffer, bytes);
+    total_read += bytes;
+  }
+  if (total_read >= 1048576) {
+    fadvise_dontneed_fd(fileno(f), 0);
   }
   fclose(f);
   unsigned char hash[EVP_MAX_MD_SIZE];
@@ -119,7 +144,7 @@ static void get_memory_info(long &mem_available, long &vm_hwm, long &swap_used) 
   }
 }
 
-static bool dir_exists(const std::string &path) {
+[[maybe_unused]] static bool dir_exists(const std::string &path) {
   struct stat st;
   return (stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode));
 }
@@ -393,15 +418,62 @@ static bool extract_json_geometry(const std::string &text, int X[4]) {
   return (bool)(iss >> X[0] >> X[1] >> X[2] >> X[3]);
 }
 
+static bool extract_json_object(const std::string &text, const std::string &key, std::string &out_obj_json) {
+  std::string pat = "\"" + key + "\"";
+  size_t pos = text.find(pat);
+  if (pos == std::string::npos) return false;
+  pos = text.find(':', pos + pat.size());
+  if (pos == std::string::npos) return false;
+  size_t lb = text.find('{', pos + 1);
+  if (lb == std::string::npos) return false;
+  int depth = 0;
+  bool in_str = false;
+  bool esc = false;
+  for (size_t i = lb; i < text.size(); i++) {
+    char c = text[i];
+    if (in_str) {
+      if (esc) {
+        esc = false;
+      } else if (c == '\\') {
+        esc = true;
+      } else if (c == '"') {
+        in_str = false;
+      }
+    } else {
+      if (c == '"') {
+        in_str = true;
+      } else if (c == '{') {
+        depth++;
+      } else if (c == '}') {
+        depth--;
+        if (depth == 0) {
+          out_obj_json = text.substr(lb, i - lb + 1);
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+static volatile sig_atomic_t g_stop_requested = 0;
+static volatile sig_atomic_t g_stop_signal = 0;
+static void ensemble_stop_signal_handler(int sig) {
+  g_stop_requested = 1;
+  g_stop_signal = sig;
+}
+
 struct CheckpointManifest {
   int generation = 0;
   int total_traj = 0;
   int warmup_done = 0;
+  int prod_traj = 0;
   int accepted_prod_traj = 0;
   int saved_confs = 0;
   int state_id = 0;
   int multiplicity = 1;
   std::string phase = "init";
+  std::string init_provenance_json = "";
   int geometry[4] = {0, 0, 0, 0};
   double beta = 0.0;
   double kappa = 0.0;
@@ -473,6 +545,11 @@ static bool load_and_validate_checkpoint_manifest(
   cm.total_traj = (int)std::llround(v);
   if (!extract_json_number(content, "warmup_done", v)) { err_msg = "Missing 'warmup_done'"; return false; }
   cm.warmup_done = (int)std::llround(v);
+  if (extract_json_number(content, "prod_traj", v)) {
+    cm.prod_traj = (int)std::llround(v);
+  } else {
+    cm.prod_traj = (cm.total_traj > cm.warmup_done) ? (cm.total_traj - cm.warmup_done) : 0;
+  }
   if (!extract_json_number(content, "accepted_prod_traj", v)) { err_msg = "Missing 'accepted_prod_traj'"; return false; }
   cm.accepted_prod_traj = (int)std::llround(v);
   if (!extract_json_number(content, "saved_confs", v)) { err_msg = "Missing 'saved_confs'"; return false; }
@@ -482,6 +559,7 @@ static bool load_and_validate_checkpoint_manifest(
   if (!extract_json_number(content, "multiplicity", v)) { err_msg = "Missing 'multiplicity'"; return false; }
   cm.multiplicity = (int)std::llround(v);
   extract_json_string(content, "phase", cm.phase);
+  extract_json_object(content, "initialization_provenance", cm.init_provenance_json);
 
   if (!extract_json_number(content, "beta", cm.beta) || std::fabs(cm.beta - exp_beta) > 1e-12) {
     err_msg = "Checkpoint parameter mismatch on 'beta'";
@@ -619,6 +697,7 @@ static bool load_and_validate_checkpoint_manifest(
     return false;
   }
   size_t rb = fread(gauge_buf.data(), 1, expected_bytes, fg);
+  fadvise_dontneed_fd(fileno(fg), 0);
   fclose(fg);
   if (rb != expected_bytes) {
     err_msg = "Checkpoint gauge file truncated";
@@ -660,21 +739,43 @@ static bool write_file_atomic_with_fsync(const std::string &path, const void *da
   std::string tmp = path + ".tmp." + std::to_string(getpid());
   FILE *f = fopen(tmp.c_str(), "wb");
   if (!f) return false;
-  if (len > 0 && fwrite(data, 1, len, f) != len) {
-    fclose(f);
-    unlink(tmp.c_str());
-    return false;
+  int fd = fileno(f);
+  if (len >= (1ULL << 20)) {
+    setvbuf(f, nullptr, _IONBF, 0);
+  }
+  const char *p = static_cast<const char *>(data);
+  const size_t chunk_sz = 64ULL << 20; // 64 MiB chunks
+  const size_t sync_evict_stride = 256ULL << 20; // sync + evict page cache every 256 MiB
+  size_t written = 0;
+  size_t since_evict = 0;
+  while (written < len) {
+    size_t to_write = (len - written > chunk_sz) ? chunk_sz : (len - written);
+    if (fwrite(p + written, 1, to_write, f) != to_write) {
+      fclose(f);
+      unlink(tmp.c_str());
+      return false;
+    }
+    written += to_write;
+    since_evict += to_write;
+    if (fd >= 0 && since_evict >= sync_evict_stride) {
+      fflush(f);
+      fdatasync(fd);
+      fadvise_dontneed_fd(fd, written);
+      since_evict = 0;
+    }
   }
   if (fflush(f) != 0) {
     fclose(f);
     unlink(tmp.c_str());
     return false;
   }
-  int fd = fileno(f);
   if (fd < 0 || fsync(fd) != 0) {
     fclose(f);
     unlink(tmp.c_str());
     return false;
+  }
+  if (len >= (1ULL << 20)) {
+    fadvise_dontneed_fd(fd, 0);
   }
   if (fclose(f) != 0) {
     unlink(tmp.c_str());
@@ -690,11 +791,115 @@ static bool write_file_atomic_with_fsync(const std::string &path, const void *da
   return true;
 }
 
+static bool hardlink_file_atomic_with_fsync(const std::string &src_path, const std::string &dst_path) {
+  std::string tmp = dst_path + ".tmp." + std::to_string(getpid());
+  unlink(tmp.c_str());
+  if (link(src_path.c_str(), tmp.c_str()) != 0) {
+    return false;
+  }
+  if (rename(tmp.c_str(), dst_path.c_str()) != 0) {
+    unlink(tmp.c_str());
+    return false;
+  }
+  if (!fsync_parent_dir(dst_path)) {
+    return false;
+  }
+  return true;
+}
+
+static unsigned long long sum_out_dir_regular_bytes(const std::string &out_dir) {
+  DIR *dir = opendir(out_dir.c_str());
+  if (!dir) return 0ULL;
+  unsigned long long total = 0ULL;
+  std::set<std::pair<dev_t, ino_t>> seen_inodes;
+  struct dirent *entry = nullptr;
+  while ((entry = readdir(dir)) != nullptr) {
+    std::string name(entry->d_name);
+    if (name == "." || name == "..") continue;
+    std::string full_path = out_dir + "/" + name;
+    struct stat st;
+    if (lstat(full_path.c_str(), &st) == 0 && S_ISREG(st.st_mode)) {
+      std::pair<dev_t, ino_t> key(st.st_dev, st.st_ino);
+      if (seen_inodes.insert(key).second) {
+        total += (unsigned long long)st.st_size;
+      }
+    }
+  }
+  closedir(dir);
+  return total;
+}
+
+static long get_host_mem_available_kb() {
+  FILE *f = fopen("/proc/meminfo", "r");
+  if (!f) return -1L;
+  char line[256];
+  long val = -1L;
+  while (fgets(line, sizeof(line), f)) {
+    if (strncmp(line, "MemAvailable:", 13) == 0) {
+      sscanf(line + 13, "%ld", &val);
+      break;
+    }
+  }
+  fclose(f);
+  return val;
+}
+
+static bool parse_ckpt_gen_filename(const std::string &name, int &gen_out) {
+  if (name.compare(0, 9, "ckpt_gen_") != 0) return false;
+  if (name.find(".tmp.") != std::string::npos) return false;
+  if (name.find('/') != std::string::npos) return false;
+  size_t dot_pos = name.find('.', 9);
+  if (dot_pos == std::string::npos || dot_pos == 9) return false;
+  for (size_t i = 9; i < dot_pos; i++) {
+    if (name[i] < '0' || name[i] > '9') return false;
+  }
+  std::string suffix = name.substr(dot_pos);
+  if (suffix != ".bin" && suffix != ".meta.json" && suffix != ".ledger.tsv") {
+    return false;
+  }
+  int g = std::atoi(name.substr(9, dot_pos - 9).c_str());
+  if (g < 1) return false;
+  gen_out = g;
+  return true;
+}
+
+static void prune_superseded_checkpoints(const std::string &out_dir, int current_gen, int keep_checkpoints) {
+  if (keep_checkpoints < 1) return;
+  int max_delete_gen = current_gen - keep_checkpoints;
+  if (max_delete_gen < 1) return;
+
+  DIR *dir = opendir(out_dir.c_str());
+  if (!dir) return;
+  std::vector<std::string> to_unlink;
+  struct dirent *entry = nullptr;
+  while ((entry = readdir(dir)) != nullptr) {
+    std::string name(entry->d_name);
+    int g = 0;
+    if (parse_ckpt_gen_filename(name, g) && g <= max_delete_gen) {
+      to_unlink.push_back(out_dir + "/" + name);
+    }
+  }
+  closedir(dir);
+
+  bool unlinked_any = false;
+  for (const auto &fpath : to_unlink) {
+    if (unlink(fpath.c_str()) == 0) {
+      unlinked_any = true;
+    }
+  }
+  if (unlinked_any) {
+    fsync_parent_dir(out_dir + "/checkpoint_manifest.json");
+  }
+}
+
 static bool publish_checkpoint_generation(const std::string &out_dir,
                                           CheckpointManifest &cm,
                                           const void *gauge_data,
                                           size_t gauge_bytes,
-                                          const std::vector<std::string> &ledger_lines) {
+                                          const std::vector<std::string> &ledger_lines,
+                                          int keep_checkpoints = 2,
+                                          unsigned long long max_out_dir_bytes = 0ULL,
+                                          unsigned long long min_free_disk_bytes = 107374182400ULL) {
   char g_name[128], m_name[128], l_name[128];
   snprintf(g_name, sizeof(g_name), "ckpt_gen_%05d.bin", cm.generation);
   snprintf(m_name, sizeof(m_name), "ckpt_gen_%05d.meta.json", cm.generation);
@@ -709,24 +914,56 @@ static bool publish_checkpoint_generation(const std::string &out_dir,
   cm.ledger_file = l_name;
   cm.ledger_rows = (int)ledger_lines.size() - 1;
 
-  std::string g_path = out_dir + "/" + g_name;
-  if (!write_file_atomic_with_fsync(g_path, gauge_data, gauge_bytes)) return false;
-
   std::ostringstream l_ss;
   for (const auto &ln : ledger_lines) l_ss << ln << "\n";
   std::string l_str = l_ss.str();
+
+  unsigned long long cur_dir_bytes = sum_out_dir_regular_bytes(out_dir);
+  unsigned long long ckpt_peak_bytes = (unsigned long long)gauge_bytes + 2ULL * (unsigned long long)l_str.size() + 16384ULL;
+  if (max_out_dir_bytes > 0ULL && cur_dir_bytes + ckpt_peak_bytes > max_out_dir_bytes) {
+    fprintf(stderr,
+            "FATAL [Gen %d]: Pre-write storage guard in publish_checkpoint_generation triggered for '%s': "
+            "current_regular_bytes=%llu + ckpt_transient_bytes=%llu = projected_peak_bytes=%llu > max_out_dir_bytes=%llu. "
+            "Refusing to write; previous checkpoint generation remains intact.\n",
+            cm.generation, out_dir.c_str(), cur_dir_bytes, ckpt_peak_bytes,
+            cur_dir_bytes + ckpt_peak_bytes, max_out_dir_bytes);
+    return false;
+  }
+  if (min_free_disk_bytes > 0ULL) {
+    unsigned long long avail_disk_bytes = get_fs_free_bytes(out_dir);
+    if (avail_disk_bytes > 0ULL && avail_disk_bytes < ckpt_peak_bytes + min_free_disk_bytes) {
+      fprintf(stderr,
+              "FATAL [Gen %d]: Filesystem free-disk guard in publish_checkpoint_generation triggered for '%s': "
+              "avail_disk_bytes=%llu < ckpt_transient_bytes=%llu + min_free_disk_bytes=%llu. "
+              "Refusing to write; previous checkpoint generation remains intact.\n",
+              cm.generation, out_dir.c_str(), avail_disk_bytes, ckpt_peak_bytes, min_free_disk_bytes);
+      return false;
+    }
+  }
+
+  std::string g_path = out_dir + "/" + g_name;
+  if (!write_file_atomic_with_fsync(g_path, gauge_data, gauge_bytes)) return false;
+
   std::string l_path = out_dir + "/" + l_name;
   if (!write_file_atomic_with_fsync(l_path, l_str.data(), l_str.size())) return false;
   cm.ledger_sha256 = compute_sha256_buffer(l_str.data(), l_str.size());
 
+  if (cm.init_provenance_json.empty()) {
+    cm.init_provenance_json = "{\"kind\": \"cold_unit_gauge\", \"thermalized_at_target_volume\": false}";
+  }
   std::ostringstream m_ss;
   m_ss << std::setprecision(17);
   m_ss << "{\n"
        << "  \"generation\": " << cm.generation << ",\n"
        << "  \"total_traj\": " << cm.total_traj << ",\n"
+       << "  \"warmup_done\": " << cm.warmup_done << ",\n"
+       << "  \"prod_traj\": " << cm.prod_traj << ",\n"
+       << "  \"accepted_prod_traj\": " << cm.accepted_prod_traj << ",\n"
+       << "  \"saved_confs\": " << cm.saved_confs << ",\n"
        << "  \"phase\": \"" << cm.phase << "\",\n"
        << "  \"state_id\": " << cm.state_id << ",\n"
        << "  \"multiplicity\": " << cm.multiplicity << ",\n"
+       << "  \"initialization_provenance\": " << cm.init_provenance_json << ",\n"
        << "  \"geometry\": [" << cm.geometry[0] << ", " << cm.geometry[1] << ", " << cm.geometry[2] << ", " << cm.geometry[3] << "],\n"
        << "  \"gauge_order\": \"QUDA_QDP_GAUGE_ORDER\",\n"
        << "  \"fermion_t_boundary\": \"QUDA_ANTI_PERIODIC_T\",\n"
@@ -768,11 +1005,13 @@ static bool publish_checkpoint_generation(const std::string &out_dir,
          << "  \"generation\": " << cm.generation << ",\n"
          << "  \"total_traj\": " << cm.total_traj << ",\n"
          << "  \"warmup_done\": " << cm.warmup_done << ",\n"
+         << "  \"prod_traj\": " << cm.prod_traj << ",\n"
          << "  \"accepted_prod_traj\": " << cm.accepted_prod_traj << ",\n"
          << "  \"saved_confs\": " << cm.saved_confs << ",\n"
          << "  \"state_id\": " << cm.state_id << ",\n"
          << "  \"multiplicity\": " << cm.multiplicity << ",\n"
          << "  \"phase\": \"" << cm.phase << "\",\n"
+         << "  \"initialization_provenance\": " << cm.init_provenance_json << ",\n"
          << "  \"geometry\": [" << cm.geometry[0] << ", " << cm.geometry[1] << ", " << cm.geometry[2] << ", " << cm.geometry[3] << "],\n"
          << "  \"gauge_order\": \"QUDA_QDP_GAUGE_ORDER\",\n"
          << "  \"fermion_t_boundary\": \"QUDA_ANTI_PERIODIC_T\",\n"
@@ -811,7 +1050,9 @@ static bool publish_checkpoint_generation(const std::string &out_dir,
   std::string man_path = out_dir + "/checkpoint_manifest.json";
   if (!write_file_atomic_with_fsync(man_path, man_str.data(), man_str.size())) return false;
   std::string main_ledger_path = out_dir + "/ensemble_ledger.tsv";
-  return write_file_atomic_with_fsync(main_ledger_path, l_str.data(), l_str.size());
+  if (!write_file_atomic_with_fsync(main_ledger_path, l_str.data(), l_str.size())) return false;
+  prune_superseded_checkpoints(out_dir, cm.generation, keep_checkpoints);
+  return true;
 }
 
 namespace quda {
@@ -997,6 +1238,9 @@ int main(int argc, char **argv) {
   int chrono_dim = 0;
   int sloppy_accum = 0;
   int accum_pipeline = 1;
+  int keep_checkpoints = 2;
+  unsigned long long max_out_dir_bytes = 0ULL;
+  unsigned long long min_free_disk_bytes = 107374182400ULL;
 
   app->add_option("--mode", mode, "Execution mode: run | reversibility | validate-checkpoint | multi-rhs-probe | bench_fp4_iter");
   app->add_option("--warmup", n_warmup, "Number of warmup proposals");
@@ -1004,6 +1248,9 @@ int main(int argc, char **argv) {
   app->add_option("--max-proposals", max_proposals, "Maximum proposals in this invocation");
   app->add_option("--stride", save_stride, "Save stride in accepted production trajectories");
   app->add_option("--out-dir", out_dir_opt, "Output directory");
+  app->add_option("--keep-checkpoints", keep_checkpoints, "Number of newest completed ckpt_gen_* generations to retain in out_dir (default 2, must be >= 1)");
+  app->add_option("--max-out-dir-bytes", max_out_dir_bytes, "Optional pre-write storage budget in bytes for out_dir including transient .tmp peak (default 0 = unlimited)");
+  app->add_option("--min-free-disk-bytes", min_free_disk_bytes, "Minimum free filesystem bytes required after transient writes via statvfs (default 107374182400 = 100 GiB, 0 = disabled)");
   app->add_option("--beta", hmc_beta, "Gauge coupling beta");
   app->add_option("--csw", csw_val, "Clover csw coefficient (0 for unimproved Wilson)");
   app->add_option("--tau", hmc_tau, "Trajectory length tau");
@@ -1023,11 +1270,22 @@ int main(int argc, char **argv) {
                   "Comma-separated 1-based trajectory indices to force rejection (TEST-ONLY; forbidden when --prod > 0 unless --allow-test-reject)");
   bool allow_test_reject = false;
   app->add_flag("--allow-test-reject", allow_test_reject, "Explicitly mark run as a test-only forced-rejection run");
+  std::string init_provenance_json_opt = "";
+  app->add_option("--init-provenance-json", init_provenance_json_opt,
+                  "Explicit JSON object string recording initialization provenance (e.g. cold_unit_gauge or tiled_checkpoint)");
+  std::string init_gauge_bin_opt = "";
+  app->add_option("--init-gauge-bin", init_gauge_bin_opt,
+                  "Optional raw QDP FP64 gauge binary to load at trajectory 0 (e.g. periodic-tiled checkpoint)");
 
   try {
     app->parse(argc, argv);
   } catch (const CLI::ParseError &e) {
     return app->exit(e);
+  }
+
+  if (keep_checkpoints < 1) {
+    fprintf(stderr, "FATAL: --keep-checkpoints must be >= 1 (got %d)\n", keep_checkpoints);
+    return 1;
   }
 
   QudaPrecision sloppy_prec = QUDA_DOUBLE_PRECISION;
@@ -1136,10 +1394,27 @@ int main(int argc, char **argv) {
     setenv("QUDA_RESOURCE_PATH", tune_dir.c_str(), 0);
   }
 
+  // Avoid allocating 2,504 B/site (24.76 GiB at 48^3x96, 60.45 GiB at 60^3x120) in host_rand
+  // inside initComms() -> initRand() when hot host-random gauge initialization is not used.
+  const int req_dim[4] = {dim[0], dim[1], dim[2], dim[3]};
+  bool need_host_rand = (mode == "bench_fp4_iter") ||
+                        (!has_existing_checkpoint && init_gauge_bin_opt.empty() && !unit_gauge);
+  const auto saved_dim = dim;
+  if (!need_host_rand) {
+    dim[0] = 2;
+    dim[1] = 2;
+    dim[2] = 2;
+    dim[3] = 2;
+  }
   int dummy_argc = 1;
   char prog_name[] = "production_ensemble_runner";
   char *dummy_argv[] = {prog_name, nullptr};
   initComms(dummy_argc, dummy_argv, gridsize_from_cmdline);
+  dim = saved_dim;
+  if (!need_host_rand) {
+    host_rand.clear();
+    host_rand.shrink_to_fit();
+  }
 
   QudaGaugeParam gauge_param;
   QudaInvertParam inv_param;
@@ -1152,18 +1427,45 @@ int main(int argc, char **argv) {
                               sloppy_accum, accum_pipeline, precise_recon);
 
   setDims(gauge_param.X);
+  if (dim[0] != req_dim[0] || dim[1] != req_dim[1] || dim[2] != req_dim[2] || dim[3] != req_dim[3] ||
+      gauge_param.X[0] != req_dim[0] || gauge_param.X[1] != req_dim[1] ||
+      gauge_param.X[2] != req_dim[2] || gauge_param.X[3] != req_dim[3] ||
+      V != (req_dim[0] * req_dim[1] * req_dim[2] * req_dim[3])) {
+    fprintf(stderr,
+            "FATAL: Runtime lattice dimensions (%dx%dx%dx%d, gauge_param.X=%dx%dx%dx%d, V=%d) do not match requested CLI dimensions (%dx%dx%dx%d)!\n",
+            dim[0], dim[1], dim[2], dim[3],
+            gauge_param.X[0], gauge_param.X[1], gauge_param.X[2], gauge_param.X[3], V,
+            req_dim[0], req_dim[1], req_dim[2], req_dim[3]);
+    return 1;
+  }
+  printf("RUNTIME_DIM_CHECK_PASS: requested=%dx%dx%dx%d runtime=%dx%dx%dx%d V=%d host_rand_size=%zu\n",
+         req_dim[0], req_dim[1], req_dim[2], req_dim[3],
+         gauge_param.X[0], gauge_param.X[1], gauge_param.X[2], gauge_param.X[3],
+         V, host_rand.size());
+
   initQuda(device_ordinal);
   setVerbosityQuda(QUDA_SUMMARIZE, "", stdout);
-  initRand();
+  if (need_host_rand) {
+    initRand();
+  }
 
   size_t V_sites = (size_t)gauge_param.X[0] * gauge_param.X[1] * gauge_param.X[2] * gauge_param.X[3];
   size_t gauge_bytes = 4 * V_sites * 18 * sizeof(double);
-  std::vector<char> gauge_buf(gauge_bytes);
-  std::vector<char> gauge_bkup_buf(gauge_bytes);
+  std::vector<char> gauge_buf;
+  bool gauge_buf_preloaded_from_resume = false;
+  if (!resumed_gauge_buf.empty() && resumed_gauge_buf.size() == gauge_bytes) {
+    gauge_buf = std::move(resumed_gauge_buf);
+    std::vector<char>().swap(resumed_gauge_buf);
+    gauge_buf_preloaded_from_resume = true;
+  } else {
+    gauge_buf.resize(gauge_bytes);
+  }
+  bool need_host_bkup = (mode == "reversibility" || mode == "bench_fp4_iter");
+  std::vector<char> gauge_bkup_buf(need_host_bkup ? gauge_bytes : 0);
   void *hostGauge[4], *hostGaugeBkup[4];
   for (int d = 0; d < 4; d++) {
     hostGauge[d] = gauge_buf.data() + d * V_sites * 18 * sizeof(double);
-    hostGaugeBkup[d] = gauge_bkup_buf.data() + d * V_sites * 18 * sizeof(double);
+    hostGaugeBkup[d] = need_host_bkup ? (gauge_bkup_buf.data() + d * V_sites * 18 * sizeof(double)) : nullptr;
   }
 
   auto run_monitored_hmc_trajectory = [&](QudaHMCParam &hp_call, double &out_dH, TrajectorySolveAudit &out_audit) -> bool {
@@ -1209,7 +1511,8 @@ int main(int argc, char **argv) {
       fseek(cap_fp, 0, SEEK_SET);
       if (fsz > 0) {
         cap_text.resize(fsz);
-        fread(&cap_text[0], 1, fsz, cap_fp);
+        size_t nread = fread(&cap_text[0], 1, fsz, cap_fp);
+        cap_text.resize(nread);
       }
       fclose(cap_fp);
       unlink(cap_path.c_str());
@@ -1237,9 +1540,13 @@ int main(int argc, char **argv) {
   // Mode: Same-Gauge Multi-RHS CG Amortization Probe (Axis 2) & Fixed-Work Iteration Benchmark
   if (mode == "multi-rhs-probe" || mode == "bench_fp4_iter") {
     if (has_existing_checkpoint) {
-      memcpy(gauge_buf.data(), resumed_gauge_buf.data(), gauge_bytes);
+      if (!gauge_buf_preloaded_from_resume) {
+        memcpy(gauge_buf.data(), resumed_gauge_buf.data(), gauge_bytes);
+        std::vector<char>().swap(resumed_gauge_buf);
+      }
     } else {
       constructHostGaugeField(hostGauge, gauge_param, dummy_argc, dummy_argv);
+      std::vector<std::mt19937_64>().swap(host_rand);
     }
     loadGaugeQuda(hostGauge, &gauge_param);
     quda::hmcRefreshResidentGaugeState(inv_param);
@@ -1263,7 +1570,10 @@ int main(int argc, char **argv) {
     unsigned long long fwd_seed = (unsigned long long)hmc_momentum_seed + 2ULL * seed_stride;
 
     if (has_existing_checkpoint) {
-      memcpy(gauge_buf.data(), resumed_gauge_buf.data(), gauge_bytes);
+      if (!gauge_buf_preloaded_from_resume) {
+        memcpy(gauge_buf.data(), resumed_gauge_buf.data(), gauge_bytes);
+        std::vector<char>().swap(resumed_gauge_buf);
+      }
       check_su3_host_readonly(reinterpret_cast<const double *>(gauge_buf.data()), dim.data(), u_err_init_host, det_err_init_host, use_omp_su3);
       loadGaugeQuda(hostGauge, &gauge_param);
       quda::hmcRefreshResidentGaugeState(inv_param);
@@ -1274,6 +1584,7 @@ int main(int argc, char **argv) {
              cm.generation, cm.total_traj, cm.state_id, cm.gauge_sha256.substr(0, 12).c_str(), fwd_seed);
     } else {
       constructHostGaugeField(hostGauge, gauge_param, dummy_argc, dummy_argv);
+      std::vector<std::mt19937_64>().swap(host_rand);
       check_su3_host_readonly(reinterpret_cast<const double *>(gauge_buf.data()), dim.data(), u_err_init_host, det_err_init_host, use_omp_su3);
 
       loadGaugeQuda(hostGauge, &gauge_param);
@@ -1371,11 +1682,12 @@ int main(int argc, char **argv) {
     double dH_net = dH_fwd + dH_bwd;
     double H_return_minus_H_start = aud_bwd.h_final - aud_fwd.h_init;
     double abs_dH_rev = std::max(std::fabs(dH_net), std::fabs(H_return_minus_H_start));
+    double rel_dH_rev = abs_dH_rev / std::max(1.0, std::fabs(aud_fwd.h_init));
     double abs_dPlaq_rev = std::fabs(plaq_return[0] - plaq_start[0]);
 
     std::string rev_json_path = out_dir_opt + "/reversibility_result.json";
     FILE *fr = fopen(rev_json_path.c_str(), "w");
-    bool pass = std::isfinite(abs_dH_rev) && std::isfinite(abs_dPlaq_rev) &&
+    bool pass = std::isfinite(abs_dH_rev) && std::isfinite(rel_dH_rev) && std::isfinite(abs_dPlaq_rev) &&
                 std::isfinite(max_link_dist) && std::isfinite(rms_link_dist) &&
                 std::isfinite(u_err_ret) && std::isfinite(det_err_ret) &&
                 (abs_dH_rev < 1e-7) && (abs_dPlaq_rev < 1e-12) &&
@@ -1398,6 +1710,7 @@ int main(int argc, char **argv) {
       fprintf(fr, "  \"dH_fwd\": %.12e,\n", dH_fwd);
       fprintf(fr, "  \"dH_bwd\": %.12e,\n", dH_bwd);
       fprintf(fr, "  \"abs_H_return_minus_H_start\": %.12e,\n", abs_dH_rev);
+      fprintf(fr, "  \"rel_H_return_minus_H_start\": %.12e,\n", rel_dH_rev);
       fprintf(fr, "  \"plaq_start\": %.17g,\n", plaq_start[0]);
       fprintf(fr, "  \"plaq_mid\": %.17g,\n", plaq_mid[0]);
       fprintf(fr, "  \"plaq_return\": %.17g,\n", plaq_return[0]);
@@ -1443,32 +1756,105 @@ int main(int argc, char **argv) {
   int generation = 0;
   int total_traj = 0;
   int warmup_done = 0;
+  int prod_traj = 0;
   int accepted_prod_traj = 0;
   int saved_confs = 0;
   int state_id = 0;
   int multiplicity = 1;
+  std::string active_init_provenance_json = init_provenance_json_opt;
+
+  struct sigaction sa_stop;
+  memset(&sa_stop, 0, sizeof(sa_stop));
+  sa_stop.sa_handler = ensemble_stop_signal_handler;
+  sigemptyset(&sa_stop.sa_mask);
+  sa_stop.sa_flags = 0;
+  sigaction(SIGTERM, &sa_stop, nullptr);
+  sigaction(SIGINT, &sa_stop, nullptr);
+  sigaction(SIGUSR1, &sa_stop, nullptr);
+
+  std::string pid_file_path = out_dir_opt + "/runner.pid";
+  std::string stop_sentinel_path = out_dir_opt + "/STOP";
+  std::string stop_req_sentinel_path = out_dir_opt + "/STOP_REQUESTED";
+  std::string dot_stop_sentinel_path = out_dir_opt + "/.stop_requested";
+  auto has_stop_sentinel = [&]() -> bool {
+    return file_exists(stop_sentinel_path) || file_exists(stop_req_sentinel_path) || file_exists(dot_stop_sentinel_path);
+  };
+  auto clear_stop_sentinels = [&]() {
+    unlink(stop_sentinel_path.c_str());
+    unlink(stop_req_sentinel_path.c_str());
+    unlink(dot_stop_sentinel_path.c_str());
+  };
+  {
+    std::string pid_str = std::to_string(getpid()) + "\n";
+    write_file_atomic_with_fsync(pid_file_path, pid_str.data(), pid_str.size());
+  }
 
   if (has_existing_checkpoint) {
     generation = cm.generation;
     total_traj = cm.total_traj;
     warmup_done = cm.warmup_done;
+    prod_traj = cm.prod_traj;
     accepted_prod_traj = cm.accepted_prod_traj;
     saved_confs = cm.saved_confs;
     state_id = cm.state_id;
     multiplicity = cm.multiplicity;
-    memcpy(gauge_buf.data(), resumed_gauge_buf.data(), gauge_bytes);
+    if (active_init_provenance_json.empty()) {
+      active_init_provenance_json = cm.init_provenance_json;
+    }
+    if (!gauge_buf_preloaded_from_resume) {
+      memcpy(gauge_buf.data(), resumed_gauge_buf.data(), gauge_bytes);
+      std::vector<char>().swap(resumed_gauge_buf);
+    }
 
     std::ifstream fl(out_dir_opt + "/" + cm.ledger_file);
     std::string ln;
     while (std::getline(fl, ln)) {
       if (!ln.empty()) ledger_lines.push_back(ln);
     }
-    printf("Resumed verified checkpoint generation %d (total_traj=%d, warmup_done=%d, accepted_prod_traj=%d, saved_confs=%d, state_id=%d, mult=%d, sha256=%s)\n",
-           generation, total_traj, warmup_done, accepted_prod_traj, saved_confs, state_id, multiplicity,
+    printf("Resumed verified checkpoint generation %d (total_traj=%d, warmup_done=%d, prod_traj=%d, accepted_prod_traj=%d, saved_confs=%d, state_id=%d, mult=%d, sha256=%s)\n",
+           generation, total_traj, warmup_done, prod_traj, accepted_prod_traj, saved_confs, state_id, multiplicity,
            cm.gauge_sha256.substr(0, 12).c_str());
   } else {
-    constructHostGaugeField(hostGauge, gauge_param, dummy_argc, dummy_argv);
+    if (!init_gauge_bin_opt.empty()) {
+      FILE *fg = fopen(init_gauge_bin_opt.c_str(), "rb");
+      if (!fg) {
+        fprintf(stderr, "FATAL: Cannot open --init-gauge-bin '%s'\n", init_gauge_bin_opt.c_str());
+        destroyHMCQuda(); freeGaugeQuda(); endQuda(); finalizeComms();
+        return 1;
+      }
+      if (fseeko(fg, 0, SEEK_END) != 0) {
+        fclose(fg);
+        fprintf(stderr, "FATAL: Cannot seek --init-gauge-bin '%s'\n", init_gauge_bin_opt.c_str());
+        destroyHMCQuda(); freeGaugeQuda(); endQuda(); finalizeComms();
+        return 1;
+      }
+      off_t fsz = ftello(fg);
+      if ((size_t)fsz != gauge_bytes) {
+        fclose(fg);
+        fprintf(stderr, "FATAL: --init-gauge-bin '%s' size mismatch: got %lld bytes, expected %zu bytes\n",
+                init_gauge_bin_opt.c_str(), (long long)fsz, gauge_bytes);
+        destroyHMCQuda(); freeGaugeQuda(); endQuda(); finalizeComms();
+        return 1;
+      }
+      fseeko(fg, 0, SEEK_SET);
+      size_t rb = fread(gauge_buf.data(), 1, gauge_bytes, fg);
+      fadvise_dontneed_fd(fileno(fg), 0);
+      fclose(fg);
+      if (rb != gauge_bytes) {
+        fprintf(stderr, "FATAL: Short read on --init-gauge-bin '%s'\n", init_gauge_bin_opt.c_str());
+        destroyHMCQuda(); freeGaugeQuda(); endQuda(); finalizeComms();
+        return 1;
+      }
+      printf("Loaded initial gauge field from '%s' (%zu bytes, page-cache evicted via POSIX_FADV_DONTNEED)\n",
+             init_gauge_bin_opt.c_str(), gauge_bytes);
+    } else {
+      constructHostGaugeField(hostGauge, gauge_param, dummy_argc, dummy_argv);
+      std::vector<std::mt19937_64>().swap(host_rand);
+    }
     ledger_lines.push_back(get_ledger_header());
+    if (active_init_provenance_json.empty()) {
+      active_init_provenance_json = "{\"kind\": \"cold_unit_gauge\", \"thermalized_at_target_volume\": false}";
+    }
   }
 
   loadGaugeQuda(hostGauge, &gauge_param);
@@ -1510,13 +1896,45 @@ int main(int argc, char **argv) {
   double run_max_true_res = 0.0;
   double run_max_u_err = cur_u_err;
   double run_max_det_err = cur_det_err;
+  bool stopped_gracefully = false;
+
+  // Recover last saved configuration state_id and sha256 if confs already exist on resume
+  int last_saved_conf_idx = saved_confs;
+  int last_saved_state_id = -1;
+  std::string last_saved_sha256 = "";
+  if (saved_confs > 0) {
+    char prev_conf_json[512];
+    snprintf(prev_conf_json, sizeof(prev_conf_json), "%s/conf.%05d.json", out_dir_opt.c_str(), saved_confs);
+    std::ifstream fprev(prev_conf_json);
+    if (fprev) {
+      std::stringstream ssprev;
+      ssprev << fprev.rdbuf();
+      std::string prev_txt = ssprev.str();
+      double v_sid = -1.0;
+      if (extract_json_number(prev_txt, "state_id", v_sid)) {
+        last_saved_state_id = (int)std::llround(v_sid);
+      }
+      extract_json_string(prev_txt, "sha256", last_saved_sha256);
+    }
+  }
 
   while (proposals_this_run < max_proposals &&
          (warmup_done < n_warmup || (n_prod_target > 0 && saved_confs < n_prod_target))) {
+    if (g_stop_requested || has_stop_sentinel()) {
+      printf("Graceful stop requested before starting next trajectory (signal=%d, sentinel=%d); stopping at generation=%d, total_traj=%d.\n",
+             (int)g_stop_signal, has_stop_sentinel() ? 1 : 0, generation, total_traj);
+      clear_stop_sentinels();
+      stopped_gracefully = true;
+      break;
+    }
     proposals_this_run++;
     total_traj++;
     bool is_warmup = (warmup_done < n_warmup);
-    if (is_warmup) warmup_done++;
+    if (is_warmup) {
+      warmup_done++;
+    } else {
+      prod_traj++;
+    }
     std::string phase_name = is_warmup ? "warmup" : "prod";
 
     unsigned long long seed_traj = (unsigned long long)hmc_momentum_seed + (unsigned long long)total_traj * seed_stride;
@@ -1525,8 +1943,7 @@ int main(int argc, char **argv) {
 
     auto t_start = std::chrono::high_resolution_clock::now();
 
-    // Backup current host gauge buffer and pre-proposal plaquette/SHA256
-    memcpy(gauge_bkup_buf.data(), gauge_buf.data(), gauge_bytes);
+    // Pre-proposal plaquette/SHA256: gauge_buf already holds U_old (not mutated during run_monitored_hmc_trajectory)
     std::string pre_sha256 = cur_sha256;
     double pre_plaq[3] = {cur_plaq[0], cur_plaq[1], cur_plaq[2]};
 
@@ -1547,8 +1964,8 @@ int main(int argc, char **argv) {
     bool accepted = forced_reject ? false : natural_accept;
 
     if (!accepted) {
-      // Restore pre-proposal gauge field to device and refresh all derived resident fields
-      loadGaugeQuda(hostGaugeBkup, &gauge_param);
+      // Restore pre-proposal gauge field directly from gauge_buf (which still holds U_old) to device
+      loadGaugeQuda(hostGauge, &gauge_param);
       quda::hmcRefreshResidentGaugeState(inv_param);
       saveGaugeQuda(hostGauge, &gauge_param);
       std::string restored_sha = compute_sha256_buffer(gauge_buf.data(), gauge_bytes);
@@ -1589,7 +2006,9 @@ int main(int argc, char **argv) {
     obs.compute_plaquette = QUDA_BOOLEAN_TRUE;
     obs.compute_polyakov_loop = QUDA_BOOLEAN_TRUE;
     obs.compute_qcharge = QUDA_BOOLEAN_TRUE;
+    quda::pool::flush_device();
     gaugeObservablesQuda(&obs);
+    quda::pool::flush_device();
     cur_plaq[0] = obs.plaquette[0];
     cur_plaq[1] = obs.plaquette[1];
     cur_plaq[2] = obs.plaquette[2];
@@ -1646,85 +2065,185 @@ int main(int argc, char **argv) {
            << cur_sha256;
     ledger_lines.push_back(row_ss.str());
 
-    // Handle production configuration saving
     if (!is_warmup && accepted) {
       accepted_prod_traj++;
-      if (accepted_prod_traj % save_stride == 0) {
-        saved_confs++;
-        char conf_bin[512], conf_json[512];
-        snprintf(conf_bin, sizeof(conf_bin), "%s/conf.%05d.bin", out_dir_opt.c_str(), saved_confs);
-        snprintf(conf_json, sizeof(conf_json), "%s/conf.%05d.json", out_dir_opt.c_str(), saved_confs);
+    }
 
+    // Unbiased Markov-chain proposal cadence: save every save_stride production proposals (accepted OR rejected).
+    // If a proposal is rejected and the active state_id matches the previously saved configuration, we hardlink
+    // conf.%05d.bin to the previous configuration binary so zero duplicate gauge bytes are consumed on disk while
+    // preserving exact 1-to-1 unweighted conf.%05d.{bin,json} Markov sample indices AND explicit residence weights.
+    bool will_save_conf = (!is_warmup && (prod_traj % save_stride == 0));
+    bool can_hardlink_prev_conf = false;
+    int hardlink_source_conf_idx = 0;
+    if (will_save_conf && !accepted && last_saved_conf_idx > 0 &&
+        last_saved_state_id == state_id && last_saved_sha256 == cur_sha256) {
+      char prev_bin_check[512];
+      snprintf(prev_bin_check, sizeof(prev_bin_check), "%s/conf.%05d.bin", out_dir_opt.c_str(), last_saved_conf_idx);
+      if (file_exists(prev_bin_check)) {
+        can_hardlink_prev_conf = true;
+        hardlink_source_conf_idx = last_saved_conf_idx;
+      }
+    }
+
+    // Hard pre-write storage budget guard for out_dir before writing conf.*.bin or ckpt_gen_*.bin
+    size_t est_ledger_bytes = 0;
+    for (const auto &ln : ledger_lines) est_ledger_bytes += ln.size() + 1;
+    unsigned long long cur_out_dir_bytes = sum_out_dir_regular_bytes(out_dir_opt);
+    unsigned long long conf_transient_bytes = 0ULL;
+    if (will_save_conf) {
+      conf_transient_bytes = can_hardlink_prev_conf ? 4096ULL : ((unsigned long long)gauge_bytes + 4096ULL);
+    }
+    unsigned long long ckpt_transient_bytes = (unsigned long long)gauge_bytes + 2ULL * (unsigned long long)est_ledger_bytes + 16384ULL;
+    unsigned long long projected_peak_bytes = cur_out_dir_bytes + conf_transient_bytes + ckpt_transient_bytes;
+    if (max_out_dir_bytes > 0ULL && projected_peak_bytes > max_out_dir_bytes) {
+      fprintf(stderr,
+              "FATAL [Traj %d]: Pre-write storage guard triggered for '%s': "
+              "current_regular_bytes=%llu + transient_peak_bytes=%llu (conf_write=%llu, ckpt_write=%llu) "
+              "= projected_peak_bytes=%llu > max_out_dir_bytes=%llu. "
+              "Refusing to write; previous checkpoint generation %d remains intact and valid.\n",
+              total_traj, out_dir_opt.c_str(), cur_out_dir_bytes,
+              conf_transient_bytes + ckpt_transient_bytes, conf_transient_bytes, ckpt_transient_bytes,
+              projected_peak_bytes, max_out_dir_bytes, generation);
+      unlink(pid_file_path.c_str());
+      destroyHMCQuda();
+      freeGaugeQuda();
+      endQuda();
+      finalizeComms();
+      return 2;
+    }
+    if (min_free_disk_bytes > 0ULL) {
+      unsigned long long avail_disk_bytes = get_fs_free_bytes(out_dir_opt);
+      unsigned long long transient_need = conf_transient_bytes + ckpt_transient_bytes;
+      if (avail_disk_bytes > 0ULL && avail_disk_bytes < transient_need + min_free_disk_bytes) {
+        fprintf(stderr,
+                "FATAL [Traj %d]: Filesystem free-disk guard triggered for '%s': "
+                "avail_disk_bytes=%llu < transient_peak_bytes=%llu + min_free_disk_bytes=%llu. "
+                "Refusing to write; previous checkpoint generation %d remains intact and valid.\n",
+                total_traj, out_dir_opt.c_str(), avail_disk_bytes,
+                transient_need, min_free_disk_bytes, generation);
+        unlink(pid_file_path.c_str());
+        destroyHMCQuda();
+        freeGaugeQuda();
+        endQuda();
+        finalizeComms();
+        return 2;
+      }
+    }
+
+    // Handle production configuration saving on true Markov proposal cadence (prod_traj % save_stride == 0)
+    if (will_save_conf) {
+      saved_confs++;
+      char conf_bin[512], conf_json[512];
+      snprintf(conf_bin, sizeof(conf_bin), "%s/conf.%05d.bin", out_dir_opt.c_str(), saved_confs);
+      snprintf(conf_json, sizeof(conf_json), "%s/conf.%05d.json", out_dir_opt.c_str(), saved_confs);
+
+      std::string hardlinked_from_str = "";
+      if (can_hardlink_prev_conf) {
+        char prev_conf_bin[512];
+        snprintf(prev_conf_bin, sizeof(prev_conf_bin), "%s/conf.%05d.bin", out_dir_opt.c_str(), hardlink_source_conf_idx);
+        char rel_prev_name[64];
+        snprintf(rel_prev_name, sizeof(rel_prev_name), "conf.%05d.bin", hardlink_source_conf_idx);
+        if (hardlink_file_atomic_with_fsync(prev_conf_bin, conf_bin)) {
+          hardlinked_from_str = rel_prev_name;
+        } else {
+          if (!write_file_atomic_with_fsync(conf_bin, gauge_buf.data(), gauge_bytes)) {
+            fprintf(stderr, "FATAL: Failed to write %s\n", conf_bin);
+            unlink(pid_file_path.c_str());
+            destroyHMCQuda(); freeGaugeQuda(); endQuda(); finalizeComms();
+            return 1;
+          }
+        }
+      } else {
         if (!write_file_atomic_with_fsync(conf_bin, gauge_buf.data(), gauge_bytes)) {
           fprintf(stderr, "FATAL: Failed to write %s\n", conf_bin);
+          unlink(pid_file_path.c_str());
           destroyHMCQuda(); freeGaugeQuda(); endQuda(); finalizeComms();
           return 1;
         }
-
-        std::ostringstream cj;
-        cj << std::setprecision(17);
-        cj << "{\n"
-           << "  \"configuration\": " << saved_confs << ",\n"
-           << "  \"trajectory\": " << total_traj << ",\n"
-           << "  \"phase\": \"prod\",\n"
-           << "  \"state_id\": " << state_id << ",\n"
-           << "  \"multiplicity\": " << multiplicity << ",\n"
-           << "  \"geometry\": [" << dim[0] << ", " << dim[1] << ", " << dim[2] << ", " << dim[3] << "],\n"
-           << "  \"gauge_order\": \"QUDA_QDP_GAUGE_ORDER\",\n"
-           << "  \"fermion_t_boundary\": \"QUDA_ANTI_PERIODIC_T\",\n"
-           << "  \"temporal_boundary_phase_slice\": \"dir=3,t=Lt-1,phase=-1\",\n"
-           << "  \"ploop_convention\": \"QUDA_RAW_STORED_TEMPORAL_LINKS_INCLUDES_APBC_SIGN\",\n"
-           << "  \"action_gauge\": \"Wilson plaquette\",\n"
-           << "  \"action_fermion\": \"Two-degenerate-flavor (Nf=2) EO-preconditioned Wilson\",\n"
-           << "  \"nf\": 2,\n"
-           << "  \"beta\": " << hmc_beta << ",\n"
-           << "  \"kappa\": " << kappa << ",\n"
-           << "  \"csw\": " << csw_val << ",\n"
-           << "  \"bare_mass\": " << inv_param.mass << ",\n"
-           << "  \"integrator\": \"QUDA_OMELYAN_INTEGRATOR\",\n"
-           << "  \"omelyan_lambda\": " << hmc_param.omelyan_lambda << ",\n"
-           << "  \"tau\": " << hmc_tau << ",\n"
-           << "  \"n_steps\": " << hmc_n_steps << ",\n"
-           << "  \"dt\": " << (hmc_n_steps > 0 ? hmc_tau / hmc_n_steps : 0.0) << ",\n"
-           << "  \"precision\": \"QUDA_DOUBLE_PRECISION\",\n"
-           << "  \"reconstruct\": \"QUDA_RECONSTRUCT_NO\",\n"
-           << "  \"solver_type\": \"QUDA_CG_INVERTER\",\n"
-           << "  \"solver_tol\": " << inv_param.tol << ",\n"
-           << "  \"solver_maxiter\": " << inv_param.maxiter << ",\n"
-           << "  \"seed_base\": " << hmc_momentum_seed << ",\n"
-           << "  \"seed_stride\": " << seed_stride << ",\n"
-           << "  \"seed_trajectory\": " << seed_traj << ",\n"
-           << "  \"H_init\": " << aud.h_init << ",\n"
-           << "  \"H_final\": " << aud.h_final << ",\n"
-           << "  \"dH\": " << dH << ",\n"
-           << "  \"exp_minus_dH\": " << raw_exp_minus_dH << ",\n"
-           << "  \"rand_val\": " << rand_val << ",\n"
-           << "  \"accepted\": 1,\n"
-           << "  \"solve_count\": " << aud.parsed_solves << ",\n"
-           << "  \"iter_total\": " << aud.parsed_iter_sum << ",\n"
-           << "  \"iter_max\": " << aud.iter_max << ",\n"
-           << "  \"max_true_res\": " << aud.max_true_res << ",\n"
-           << "  \"plaquette_total\": " << cur_plaq[0] << ",\n"
-           << "  \"plaquette_spatial\": " << cur_plaq[1] << ",\n"
-           << "  \"plaquette_temporal\": " << cur_plaq[2] << ",\n"
-           << "  \"ploop_re\": " << obs.ploop[0] << ",\n"
-           << "  \"ploop_im\": " << obs.ploop[1] << ",\n"
-           << "  \"qcharge\": " << obs.qcharge << ",\n"
-           << "  \"energy_total\": " << obs.energy[0] << ",\n"
-           << "  \"su3_u_err\": " << cur_u_err << ",\n"
-           << "  \"su3_det_err\": " << cur_det_err << ",\n"
-           << "  \"sha256\": \"" << cur_sha256 << "\",\n"
-           << "  \"bytes\": " << gauge_bytes << "\n"
-           << "}\n";
-        std::string cj_str = cj.str();
-        if (!write_file_atomic_with_fsync(conf_json, cj_str.data(), cj_str.size())) {
-          fprintf(stderr, "FATAL: Failed to write %s\n", conf_json);
-          destroyHMCQuda(); freeGaugeQuda(); endQuda(); finalizeComms();
-          return 1;
-        }
-        printf("Saved Production Conf %05d (traj %d, state_id %d, sha256 %s)\n",
-               saved_confs, total_traj, state_id, cur_sha256.substr(0, 12).c_str());
       }
+
+      std::string sample_kind = accepted ? "accepted_proposal" : "rejected_repeat";
+      int origin_conf = can_hardlink_prev_conf ? hardlink_source_conf_idx : saved_confs;
+
+      std::ostringstream cj;
+      cj << std::setprecision(17);
+      cj << "{\n"
+         << "  \"configuration\": " << saved_confs << ",\n"
+         << "  \"trajectory\": " << total_traj << ",\n"
+         << "  \"prod_traj\": " << prod_traj << ",\n"
+         << "  \"accepted_prod_traj\": " << accepted_prod_traj << ",\n"
+         << "  \"phase\": \"prod\",\n"
+         << "  \"sample_cadence\": \"markov_proposal_stride\",\n"
+         << "  \"save_stride\": " << save_stride << ",\n"
+         << "  \"sample_kind\": \"" << sample_kind << "\",\n"
+         << "  \"state_id\": " << state_id << ",\n"
+         << "  \"multiplicity\": " << multiplicity << ",\n"
+         << "  \"origin_configuration\": " << origin_conf << ",\n"
+         << "  \"hardlinked_from\": \"" << hardlinked_from_str << "\",\n"
+         << "  \"initialization_provenance\": " << active_init_provenance_json << ",\n"
+         << "  \"geometry\": [" << dim[0] << ", " << dim[1] << ", " << dim[2] << ", " << dim[3] << "],\n"
+         << "  \"gauge_order\": \"QUDA_QDP_GAUGE_ORDER\",\n"
+         << "  \"fermion_t_boundary\": \"QUDA_ANTI_PERIODIC_T\",\n"
+         << "  \"temporal_boundary_phase_slice\": \"dir=3,t=Lt-1,phase=-1\",\n"
+         << "  \"ploop_convention\": \"QUDA_RAW_STORED_TEMPORAL_LINKS_INCLUDES_APBC_SIGN\",\n"
+         << "  \"action_gauge\": \"Wilson plaquette\",\n"
+         << "  \"action_fermion\": \"Two-degenerate-flavor (Nf=2) EO-preconditioned Wilson\",\n"
+         << "  \"nf\": 2,\n"
+         << "  \"beta\": " << hmc_beta << ",\n"
+         << "  \"kappa\": " << kappa << ",\n"
+         << "  \"csw\": " << csw_val << ",\n"
+         << "  \"bare_mass\": " << inv_param.mass << ",\n"
+         << "  \"integrator\": \"QUDA_OMELYAN_INTEGRATOR\",\n"
+         << "  \"omelyan_lambda\": " << hmc_param.omelyan_lambda << ",\n"
+         << "  \"tau\": " << hmc_tau << ",\n"
+         << "  \"n_steps\": " << hmc_n_steps << ",\n"
+         << "  \"dt\": " << (hmc_n_steps > 0 ? hmc_tau / hmc_n_steps : 0.0) << ",\n"
+         << "  \"precision\": \"QUDA_DOUBLE_PRECISION\",\n"
+         << "  \"reconstruct\": \"QUDA_RECONSTRUCT_NO\",\n"
+         << "  \"solver_type\": \"QUDA_CG_INVERTER\",\n"
+         << "  \"solver_tol\": " << inv_param.tol << ",\n"
+         << "  \"solver_maxiter\": " << inv_param.maxiter << ",\n"
+         << "  \"seed_base\": " << hmc_momentum_seed << ",\n"
+         << "  \"seed_stride\": " << seed_stride << ",\n"
+         << "  \"seed_trajectory\": " << seed_traj << ",\n"
+         << "  \"H_init\": " << aud.h_init << ",\n"
+         << "  \"H_final\": " << aud.h_final << ",\n"
+         << "  \"dH\": " << dH << ",\n"
+         << "  \"exp_minus_dH\": " << raw_exp_minus_dH << ",\n"
+         << "  \"rand_val\": " << rand_val << ",\n"
+         << "  \"accepted\": " << (accepted ? 1 : 0) << ",\n"
+         << "  \"forced_reject\": " << (forced_reject ? 1 : 0) << ",\n"
+         << "  \"solve_count\": " << aud.parsed_solves << ",\n"
+         << "  \"iter_total\": " << aud.parsed_iter_sum << ",\n"
+         << "  \"iter_max\": " << aud.iter_max << ",\n"
+         << "  \"max_true_res\": " << aud.max_true_res << ",\n"
+         << "  \"plaquette_total\": " << cur_plaq[0] << ",\n"
+         << "  \"plaquette_spatial\": " << cur_plaq[1] << ",\n"
+         << "  \"plaquette_temporal\": " << cur_plaq[2] << ",\n"
+         << "  \"ploop_re\": " << obs.ploop[0] << ",\n"
+         << "  \"ploop_im\": " << obs.ploop[1] << ",\n"
+         << "  \"qcharge\": " << obs.qcharge << ",\n"
+         << "  \"energy_total\": " << obs.energy[0] << ",\n"
+         << "  \"su3_u_err\": " << cur_u_err << ",\n"
+         << "  \"su3_det_err\": " << cur_det_err << ",\n"
+         << "  \"sha256\": \"" << cur_sha256 << "\",\n"
+         << "  \"bytes\": " << gauge_bytes << "\n"
+         << "}\n";
+      std::string cj_str = cj.str();
+      if (!write_file_atomic_with_fsync(conf_json, cj_str.data(), cj_str.size())) {
+        fprintf(stderr, "FATAL: Failed to write %s\n", conf_json);
+        unlink(pid_file_path.c_str());
+        destroyHMCQuda(); freeGaugeQuda(); endQuda(); finalizeComms();
+        return 1;
+      }
+      last_saved_conf_idx = saved_confs;
+      last_saved_state_id = state_id;
+      last_saved_sha256 = cur_sha256;
+      printf("Saved Production Conf %05d (traj %d, prod_traj %d, acc=%d, kind=%s, state_id %d, mult %d, hardlink=%s, sha256 %s)\n",
+             saved_confs, total_traj, prod_traj, accepted ? 1 : 0, sample_kind.c_str(),
+             state_id, multiplicity, hardlinked_from_str.empty() ? "none" : hardlinked_from_str.c_str(),
+             cur_sha256.substr(0, 12).c_str());
     }
 
     // Publish crash-consistent checkpoint generation after EVERY trajectory (accepted or rejected)
@@ -1733,11 +2252,13 @@ int main(int argc, char **argv) {
     next_cm.generation = generation;
     next_cm.total_traj = total_traj;
     next_cm.warmup_done = warmup_done;
+    next_cm.prod_traj = prod_traj;
     next_cm.accepted_prod_traj = accepted_prod_traj;
     next_cm.saved_confs = saved_confs;
     next_cm.state_id = state_id;
     next_cm.multiplicity = multiplicity;
     next_cm.phase = phase_name;
+    next_cm.init_provenance_json = active_init_provenance_json;
     for (int d = 0; d < 4; d++) next_cm.geometry[d] = dim[d];
     next_cm.beta = hmc_beta;
     next_cm.kappa = kappa;
@@ -1761,8 +2282,9 @@ int main(int argc, char **argv) {
     next_cm.su3_det_err = cur_det_err;
     next_cm.gauge_sha256 = cur_sha256;
 
-    if (!publish_checkpoint_generation(out_dir_opt, next_cm, gauge_buf.data(), gauge_bytes, ledger_lines)) {
+    if (!publish_checkpoint_generation(out_dir_opt, next_cm, gauge_buf.data(), gauge_bytes, ledger_lines, keep_checkpoints, max_out_dir_bytes, min_free_disk_bytes)) {
       fprintf(stderr, "FATAL [Traj %d]: Failed to publish checkpoint generation %d\n", total_traj, generation);
+      unlink(pid_file_path.c_str());
       destroyHMCQuda(); freeGaugeQuda(); endQuda(); finalizeComms();
       return 1;
     }
@@ -1778,12 +2300,22 @@ int main(int argc, char **argv) {
     if (cur_u_err > run_max_u_err) run_max_u_err = cur_u_err;
     if (cur_det_err > run_max_det_err) run_max_det_err = cur_det_err;
 
-    printf("Traj %d (%s, state=%d, mult=%d, seed=%llu): dH=%+.6e, rand=%.6f, acc=%d (forced_rej=%d), solves=%d (iters=%d, max_res=%.3e), Plaq=%.17g, Q=%+.6e, u_err=%.3e, det_err=%.3e, Time=%.2fs, TimePreIO=%.3fs, TimeComplete=%.3fs, VmHWM=%.1fMB\n",
+    long mem_avail_kb = get_host_mem_available_kb();
+    printf("Traj %d (%s, state=%d, mult=%d, seed=%llu): dH=%+.6e, rand=%.6f, acc=%d (forced_rej=%d), solves=%d (iters=%d, max_res=%.3e), Plaq=%.17g, Q=%+.6e, u_err=%.3e, det_err=%.3e, Time=%.2fs, TimePreIO=%.3fs, TimeComplete=%.3fs, VmHWM=%.1fMB, MemAvail=%.1fMB\n",
            total_traj, phase_name.c_str(), state_id, multiplicity, seed_traj,
            dH, rand_val, accepted ? 1 : 0, forced_reject ? 1 : 0,
            aud.parsed_solves, aud.parsed_iter_sum, aud.max_true_res,
-           cur_plaq[0], obs.qcharge, cur_u_err, cur_det_err, elapsed, elapsed, traj_complete_sec, vm_hwm / 1024.0);
+           cur_plaq[0], obs.qcharge, cur_u_err, cur_det_err, elapsed, elapsed, traj_complete_sec, vm_hwm / 1024.0, mem_avail_kb / 1024.0);
     fflush(stdout);
+
+    if (g_stop_requested || has_stop_sentinel()) {
+      printf("Graceful stop completed after publishing checkpoint generation %d (total_traj=%d, state_id=%d, mult=%d, signal=%d, sentinel=%d).\n",
+             generation, total_traj, state_id, multiplicity, (int)g_stop_signal, has_stop_sentinel() ? 1 : 0);
+      fflush(stdout);
+      clear_stop_sentinels();
+      stopped_gracefully = true;
+      break;
+    }
   }
 
   auto t_loop_end = std::chrono::high_resolution_clock::now();
@@ -1817,9 +2349,11 @@ int main(int argc, char **argv) {
 
   quda::logResidentMemoryBreakdown(V_sites, accum_pipeline);
 
-  printf("=== Run Complete: total_traj=%d, warmup_done=%d, accepted_prod_traj=%d, saved_confs=%d, state_id=%d, mult=%d ===\n",
-         total_traj, warmup_done, accepted_prod_traj, saved_confs, state_id, multiplicity);
+  printf("=== Run %s: total_traj=%d, warmup_done=%d, prod_traj=%d, accepted_prod_traj=%d, saved_confs=%d, state_id=%d, mult=%d ===\n",
+         stopped_gracefully ? "Stopped Gracefully" : "Complete",
+         total_traj, warmup_done, prod_traj, accepted_prod_traj, saved_confs, state_id, multiplicity);
 
+  unlink(pid_file_path.c_str());
   destroyHMCQuda();
   freeGaugeQuda();
   freeCloverQuda();
