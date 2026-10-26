@@ -1547,7 +1547,7 @@ int main(int argc, char **argv) {
     } else {
       constructHostGaugeField(hostGauge, gauge_param, dummy_argc, dummy_argv);
       std::vector<std::mt19937_64>().swap(host_rand);
-    }
+      }
     loadGaugeQuda(hostGauge, &gauge_param);
     quda::hmcRefreshResidentGaugeState(inv_param);
     bool ok = quda::runMultiRhsCGProbe(inv_param, (unsigned long long)hmc_momentum_seed, V_sites);
@@ -1850,7 +1850,7 @@ int main(int argc, char **argv) {
     } else {
       constructHostGaugeField(hostGauge, gauge_param, dummy_argc, dummy_argv);
       std::vector<std::mt19937_64>().swap(host_rand);
-    }
+      }
     ledger_lines.push_back(get_ledger_header());
     if (active_init_provenance_json.empty()) {
       active_init_provenance_json = "{\"kind\": \"cold_unit_gauge\", \"thermalized_at_target_volume\": false}";
