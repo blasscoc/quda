@@ -1,0 +1,57 @@
+{
+  "status": "passed",
+  "dims": [
+    4,
+    6,
+    4,
+    8
+  ],
+  "dtype": "float64",
+  "gamma_basis": "UKQCD",
+  "temporal_boundary": "periodic",
+  "checks": {
+    "m_relative_error_vs_quda": 1.1575606146224618e-16,
+    "mdag_relative_error_vs_quda": 1.1888891117551713e-16,
+    "mdagm_relative_error_vs_quda": 1.5651464443307193e-16,
+    "energy_autograd_error": 1.606120589113365e-16,
+    "forward_vjp_error": 2.2206356261996967e-16,
+    "checkpoint_gradient_error": 0.0,
+    "batch_error": 1.3717790011296099e-16,
+    "reload_error": 0.0,
+    "gradcheck_antiperiodic": true
+  },
+  "reduced_precision_forward_errors": {
+    "torch.float32": 7.160850914956854e-08,
+    "torch.float16": 0.000505910592693122,
+    "torch.bfloat16": 0.004172895246249883
+  },
+  "sgd": {
+    "steps": 20,
+    "residuals": [
+      1.0,
+      0.823365804891799,
+      0.686158013086742,
+      0.578715042860034,
+      0.4938609169688258,
+      0.4262447617022214,
+      0.37186039923203934,
+      0.32769586347502677,
+      0.2914768567597813,
+      0.26147832332992027,
+      0.23638558074353475,
+      0.2151916388807587,
+      0.19712104083093307,
+      0.1815732088968708,
+      0.16808017973425687,
+      0.1562749833314026,
+      0.14586791443893027,
+      0.13662866952897,
+      0.12837285274077465,
+      0.1209517438266553
+    ],
+    "wall_seconds": 0.08547460399859119
+  },
+  "torch": "2.14.0a0+b2c75dd062.nv26.09",
+  "gpu": "NVIDIA GB10",
+  "scope": "Pure torch forward/Schur and autograd, not a QUDA wrapper. Small correctness test, not production performance."
+}
