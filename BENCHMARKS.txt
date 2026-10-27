@@ -1,0 +1,92 @@
+Native FP4 Wilson forward experiments — 2026-10-27
+================================================
+
+Scope: complete A*x = M_even^dagger M_even*x with fixed gauge. These are Torch
+network forward timings, NOT QUDA/HMC trajectory timings. The 56^3x96 checkpoint
+is tiled and unthermalized. Kappa .156, periodic fermions. Reference is the
+previously QUDA-validated FP64 Torch operator.
+
+Full 56^3x96, one RHS, median seconds / relative L2 error versus FP64:
+  Original Torch FP64          16.1973       0
+  Original Torch FP32           4.9957       7.27e-8
+  Cached FP32                  3.2575       7.41e-8
+  Cached FP16                  1.6730       5.27e-4
+  Cached BF16                  1.6931       4.21e-3
+  Unfused native FP4            3.6381       0.10369
+  Single-site fused FP4         4.4245       0.10369
+  Paired-site fused FP4         2.3401       0.10502
+  Paired-site FP4 x3            5.8997       0.01406
+  Paired-site fused FP16        0.8837       4.28e-4
+
+Packing accelerated fused FP4 1.89x. FP16 still wins: 2.65x faster than paired
+FP4, and much more accurate. Its 18.3x speedup is against this original Torch
+FP64 baseline, NOT against QUDA. Three-product FP4 reduces error 7.5x but loses
+throughput. Do not accept the quantized path as a converged/HMC-valid solve.
+
+Full-size batch 4 (full_batch4_benchmark.json):
+  Paired-site FP4: 1.8516 s/batch, 0.4629 s/RHS, error 0.10502.
+  Fused FP16:      0.9788 s/batch, 0.2447 s/RHS, error 0.00042794.
+FP4 throughput improves 5.06x versus batch 1; FP16 remains 1.89x faster at
+batch 4. These are separate short measurements, not clock-controlled statistical
+studies: do not infer that more RHS always reduces total latency. Batch 4 fills
+the 16-column tile already allocated for batch 1. Peak Torch allocation was
+57.31 GiB (FP4) / 39.73 GiB (FP16), including reference/validation allocations.
+
+Ideas implemented:
+1. Cached color matrices and sparse spin permutations.
+2. Native E2M1 color contraction using Triton tl.dot_scaled.
+3. Fused gathers, eight direction products, projection and sums per Dslash.
+4. Two sites packed into one block-diagonal tensor-core tile.
+5. Three-product FP4 correction: Ahi*Bhi + Alo*Bhi + Ahi*Blo (omits Alo*Blo).
+6. Batched right-hand sides to fill tensor-core columns.
+7. Fused FP16 control to distinguish fusion from precision benefits.
+
+Precision and validation:
+Emitted PTX contains mma.sync ... mxf4nvf4 ... e2m1 tensor-core instructions.
+FP4 operands use FP8 power-of-two scales, FP32 hardware accumulation and FP32
+external state. Gauge caches remain uncompressed. This is NOT all-FP4 storage.
+Quantization makes the approximate map nonlinear: it is not exactly the linear
+SPD physical operator. Fused modes deliberately reject autograd; the original
+Torch network and ordinary cached modes retain it. No silent fake gradient.
+
+validate_fp4.py checks an independent Torch quantize/dequantize implementation
+against fused kernels: both parities, dagger/non-dagger, periodic/antiperiodic
+time, batches 1/4/8, one/three-product variants. All 48 checks passed with zero
+relative disagreement. Stale-cache guard also passed. This validates the chosen
+quantized algorithm, not its suitability for HMC. Full-size testing exposed a
+32-bit address overflow in paired-site packing; offsets now use 64-bit math.
+
+Method:
+NGC PyTorch 26.09, torch 2.14.0a0+b2c75dd062.nv26.09, Triton 3.8.0, GB10.
+Container digest sha256:6e8ccc607fc2a51e3741667b86316a0889418ba8b78ed0ba96e8d282b648a7a6.
+One warmup, three synchronized wall times, median reported. Setup and compilation
+excluded; setup is recorded separately in JSON. Gauge changes require rebuilding
+the cache, a material HMC cost. GPU timings run in isolation. Peak allocated
+memory includes live reference inputs/outputs and validation temporaries, and is
+not whole-system usage. Experimental execution modes are not serialized; save
+the original network and reconstruct the desired cached execution mode.
+
+Files:
+full_56x96_benchmark.json: baseline/cache/unfused/single-site fused experiments.
+full_refinement_benchmark.json: paired-site fused FP4, corrected FP4 and FP16.
+network_benchmark.json, fused_benchmark.json, refinement_benchmark.json: small
+screening tests; the first two predate paired-site kernels. Do not extrapolate
+small-lattice wins to the actual target lattice.
+fp4_validation.json: independent kernel checks.
+
+Reproduce inside the container with this directory mounted as working directory:
+  python validate_fp4.py
+  python benchmark_network.py --batches 1 4 --output small.json
+  python benchmark_network.py --dims 56 56 56 96 --gauge /path/conf.00002.bin --batches 1 --modes fused_fp4 fused_fp4x3 fused_fp16 --output full.json
+Gauge must match dimensions and raw QDP FP64 layout.
+
+Next hypotheses (not established results):
+- Prequantize fixed gauge weights/scales; measure setup amortization and memory.
+- Project spin before color contraction to halve spin components.
+- Reduce padded K=64 work or aggregate additional independent blocks/RHS vectors.
+- Test approximate FP4 inner iterations against independently evaluated reliable
+  residuals. Measure convergence and HMC acceptance, not forward error alone.
+
+Primary API reference:
+https://triton-lang.org/main/python-api/generated/triton.language.dot_scaled.html
+Emitted instructions and runtime checks establish native support on this stack.

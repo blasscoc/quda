@@ -2,3 +2,6 @@ __pycache__/
 *.bin
 *.pt
 *.log
+*.ptx
+triton-api.txt
+dot-scaled-source.txt

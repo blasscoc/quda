@@ -1,0 +1,210 @@
+{
+  "dims": [
+    16,
+    16,
+    16,
+    32
+  ],
+  "gauge_source": "synthetic random SU3; correctness/performance smoke only",
+  "cases": [
+    {
+      "batch": 1,
+      "mode": "baseline_fp64",
+      "setup_s": 0.021216095992713235,
+      "forward_s_samples": [
+        0.1170046769984765,
+        0.11437292100163177,
+        0.11326118800207041
+      ],
+      "forward_s_median": 0.11437292100163177,
+      "relative_error_vs_fp64": 0.0,
+      "finite": true,
+      "peak_allocated_GiB": 0.2548866271972656
+    },
+    {
+      "batch": 1,
+      "mode": "baseline_fp32",
+      "setup_s": 0.026487975992495194,
+      "forward_s_samples": [
+        0.025923862005583942,
+        0.025486451995675452,
+        0.030028585009858944
+      ],
+      "forward_s_median": 0.025923862005583942,
+      "relative_error_vs_fp64": 7.16699751165833e-08,
+      "finite": true,
+      "peak_allocated_GiB": 0.1650409698486328
+    },
+    {
+      "batch": 1,
+      "mode": "cached_fp32",
+      "setup_s": 0.04164319799747318,
+      "forward_s_samples": [
+        0.021833203005371615,
+        0.01776484899164643,
+        0.01893605399527587
+      ],
+      "forward_s_median": 0.01893605399527587,
+      "relative_error_vs_fp64": 7.309982812126331e-08,
+      "finite": true,
+      "peak_allocated_GiB": 0.294924259185791
+    },
+    {
+      "batch": 1,
+      "mode": "cached_fp16",
+      "setup_s": 0.0413930530048674,
+      "forward_s_samples": [
+        0.008121445003780536,
+        0.008150644993293099,
+        0.008073397009866312
+      ],
+      "forward_s_median": 0.008121445003780536,
+      "relative_error_vs_fp64": 0.0005238020022088571,
+      "finite": true,
+      "peak_allocated_GiB": 0.1816415786743164
+    },
+    {
+      "batch": 1,
+      "mode": "cached_bf16",
+      "setup_s": 0.0324830280005699,
+      "forward_s_samples": [
+        0.009384410994243808,
+        0.010872065991861746,
+        0.010438223005621694
+      ],
+      "forward_s_median": 0.010438223005621694,
+      "relative_error_vs_fp64": 0.004196278309729104,
+      "finite": true,
+      "peak_allocated_GiB": 0.1816415786743164
+    },
+    {
+      "batch": 1,
+      "mode": "native_fp4_color",
+      "setup_s": 0.045029853004962206,
+      "forward_s_samples": [
+        0.020962606999091804,
+        0.021101631995406933,
+        0.02094068798760418
+      ],
+      "forward_s_median": 0.020962606999091804,
+      "relative_error_vs_fp64": 0.1086591763423833,
+      "finite": true,
+      "peak_allocated_GiB": 0.294924259185791
+    },
+    {
+      "batch": 1,
+      "mode": "fused_fp4",
+      "setup_s": 0.044739899996784516,
+      "forward_s_samples": [
+        0.018653748993529007,
+        0.019449656989309005,
+        0.023702796010184102
+      ],
+      "forward_s_median": 0.019449656989309005,
+      "relative_error_vs_fp64": 0.1086591763423833,
+      "finite": true,
+      "peak_allocated_GiB": 0.2832050323486328
+    },
+    {
+      "batch": 4,
+      "mode": "baseline_fp64",
+      "setup_s": 0.026116982990060933,
+      "forward_s_samples": [
+        0.302435682999203,
+        0.30133159800607245,
+        0.31093445800070185
+      ],
+      "forward_s_median": 0.302435682999203,
+      "relative_error_vs_fp64": 0.0,
+      "finite": true,
+      "peak_allocated_GiB": 0.6416053771972656
+    },
+    {
+      "batch": 4,
+      "mode": "baseline_fp32",
+      "setup_s": 0.023895980993984267,
+      "forward_s_samples": [
+        0.11663246799435001,
+        0.11619472200982273,
+        0.11598243299522437
+      ],
+      "forward_s_median": 0.11619472200982273,
+      "relative_error_vs_fp64": 7.025306828078665e-08,
+      "finite": true,
+      "peak_allocated_GiB": 0.4106464385986328
+    },
+    {
+      "batch": 4,
+      "mode": "cached_fp32",
+      "setup_s": 0.04576014500344172,
+      "forward_s_samples": [
+        0.12873365900304634,
+        0.13511738399392925,
+        0.15737329400144517
+      ],
+      "forward_s_median": 0.13511738399392925,
+      "relative_error_vs_fp64": 7.025306828078665e-08,
+      "finite": true,
+      "peak_allocated_GiB": 0.523439884185791
+    },
+    {
+      "batch": 4,
+      "mode": "cached_fp16",
+      "setup_s": 0.05413024700828828,
+      "forward_s_samples": [
+        0.05155426700366661,
+        0.04635462800797541,
+        0.05003992399724666
+      ],
+      "forward_s_median": 0.05003992399724666,
+      "relative_error_vs_fp64": 0.0005239479230574521,
+      "finite": true,
+      "peak_allocated_GiB": 0.3398447036743164
+    },
+    {
+      "batch": 4,
+      "mode": "cached_bf16",
+      "setup_s": 0.031642463989555836,
+      "forward_s_samples": [
+        0.046231458996771835,
+        0.05528889199194964,
+        0.04554894400644116
+      ],
+      "forward_s_median": 0.046231458996771835,
+      "relative_error_vs_fp64": 0.004193298277398766,
+      "finite": true,
+      "peak_allocated_GiB": 0.3398447036743164
+    },
+    {
+      "batch": 4,
+      "mode": "native_fp4_color",
+      "setup_s": 0.05112879301304929,
+      "forward_s_samples": [
+        0.07999252500303555,
+        0.08163814900035504,
+        0.08117955399211496
+      ],
+      "forward_s_median": 0.08117955399211496,
+      "relative_error_vs_fp64": 0.10858309432904845,
+      "finite": true,
+      "peak_allocated_GiB": 0.523439884185791
+    },
+    {
+      "batch": 4,
+      "mode": "fused_fp4",
+      "setup_s": 0.052187998007866554,
+      "forward_s_samples": [
+        0.027183579994016327,
+        0.02764454200223554,
+        0.026388631988083944
+      ],
+      "forward_s_median": 0.027183579994016327,
+      "relative_error_vs_fp64": 0.10858309432904845,
+      "finite": true,
+      "peak_allocated_GiB": 0.4765644073486328
+    }
+  ],
+  "torch": "2.14.0a0+b2c75dd062.nv26.09",
+  "gpu": "NVIDIA GB10",
+  "note": "FP4 is native color GEMM operands only, FP32 accumulation and FP32 external state; no all-FP4 claim."
+}

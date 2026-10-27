@@ -1,0 +1,112 @@
+{
+  "dims": [
+    56,
+    56,
+    56,
+    96
+  ],
+  "gauge_source": "/home/vjordan/.local/state/experiment-playground/teams/research-lab/experiments/quda-max-volume-20261026/emmy_max_vol/ens_56x96_tiled/conf.00002.bin",
+  "cases": [
+    {
+      "batch": 1,
+      "mode": "baseline_fp64",
+      "setup_s": 1.0513743009942118,
+      "forward_s_samples": [
+        16.208391980006127,
+        16.197283135988982,
+        16.1908876850066
+      ],
+      "forward_s_median": 16.197283135988982,
+      "relative_error_vs_fp64": 0.0,
+      "finite": true,
+      "peak_allocated_GiB": 28.804203033447266
+    },
+    {
+      "batch": 1,
+      "mode": "baseline_fp32",
+      "setup_s": 0.9886166119977133,
+      "forward_s_samples": [
+        4.984009740001056,
+        5.119626835992676,
+        4.995711185998516
+      ],
+      "forward_s_median": 4.995711185998516,
+      "relative_error_vs_fp64": 7.266158165512851e-08,
+      "finite": true,
+      "peak_allocated_GiB": 17.181215286254883
+    },
+    {
+      "batch": 1,
+      "mode": "cached_fp32",
+      "setup_s": 4.242371129992534,
+      "forward_s_samples": [
+        3.2840126249939203,
+        3.257507690010243,
+        3.1887307839933783
+      ],
+      "forward_s_median": 3.257507690010243,
+      "relative_error_vs_fp64": 7.412215288195092e-08,
+      "finite": true,
+      "peak_allocated_GiB": 33.94800043106079
+    },
+    {
+      "batch": 1,
+      "mode": "cached_fp16",
+      "setup_s": 2.219956654997077,
+      "forward_s_samples": [
+        1.673039814006188,
+        1.6484334619890433,
+        1.7412467219983228
+      ],
+      "forward_s_median": 1.673039814006188,
+      "relative_error_vs_fp64": 0.0005267101598191839,
+      "finite": true,
+      "peak_allocated_GiB": 19.378907203674316
+    },
+    {
+      "batch": 1,
+      "mode": "cached_bf16",
+      "setup_s": 2.2592359609989217,
+      "forward_s_samples": [
+        1.6931049350096146,
+        1.7768368100078078,
+        1.67526248600916
+      ],
+      "forward_s_median": 1.6931049350096146,
+      "relative_error_vs_fp64": 0.004214694938091999,
+      "finite": true,
+      "peak_allocated_GiB": 19.378907203674316
+    },
+    {
+      "batch": 1,
+      "mode": "native_fp4_color",
+      "setup_s": 3.7542523599986453,
+      "forward_s_samples": [
+        3.6477217950014165,
+        3.6380732740071835,
+        3.6318989459978184
+      ],
+      "forward_s_median": 3.6380732740071835,
+      "relative_error_vs_fp64": 0.1036864662324706,
+      "finite": true,
+      "peak_allocated_GiB": 33.94800043106079
+    },
+    {
+      "batch": 1,
+      "mode": "fused_fp4",
+      "setup_s": 3.9150109619949944,
+      "forward_s_samples": [
+        4.426502602000255,
+        4.424532470002305,
+        4.386574427000596
+      ],
+      "forward_s_median": 4.424532470002305,
+      "relative_error_vs_fp64": 0.1036864662324706,
+      "finite": true,
+      "peak_allocated_GiB": 32.44067573547363
+    }
+  ],
+  "torch": "2.14.0a0+b2c75dd062.nv26.09",
+  "gpu": "NVIDIA GB10",
+  "note": "FP4 is native color GEMM operands only, FP32 accumulation and FP32 external state; no all-FP4 claim."
+}

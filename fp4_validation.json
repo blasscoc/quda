@@ -1,0 +1,386 @@
+[
+  {
+    "boundary": 1,
+    "batch": 1,
+    "parity": 0,
+    "dagger": false,
+    "components": 1,
+    "error": 0.0
+  },
+  {
+    "boundary": 1,
+    "batch": 1,
+    "parity": 0,
+    "dagger": false,
+    "components": 3,
+    "error": 0.0
+  },
+  {
+    "boundary": 1,
+    "batch": 1,
+    "parity": 0,
+    "dagger": true,
+    "components": 1,
+    "error": 0.0
+  },
+  {
+    "boundary": 1,
+    "batch": 1,
+    "parity": 0,
+    "dagger": true,
+    "components": 3,
+    "error": 0.0
+  },
+  {
+    "boundary": 1,
+    "batch": 1,
+    "parity": 1,
+    "dagger": false,
+    "components": 1,
+    "error": 0.0
+  },
+  {
+    "boundary": 1,
+    "batch": 1,
+    "parity": 1,
+    "dagger": false,
+    "components": 3,
+    "error": 0.0
+  },
+  {
+    "boundary": 1,
+    "batch": 1,
+    "parity": 1,
+    "dagger": true,
+    "components": 1,
+    "error": 0.0
+  },
+  {
+    "boundary": 1,
+    "batch": 1,
+    "parity": 1,
+    "dagger": true,
+    "components": 3,
+    "error": 0.0
+  },
+  {
+    "boundary": 1,
+    "batch": 4,
+    "parity": 0,
+    "dagger": false,
+    "components": 1,
+    "error": 0.0
+  },
+  {
+    "boundary": 1,
+    "batch": 4,
+    "parity": 0,
+    "dagger": false,
+    "components": 3,
+    "error": 0.0
+  },
+  {
+    "boundary": 1,
+    "batch": 4,
+    "parity": 0,
+    "dagger": true,
+    "components": 1,
+    "error": 0.0
+  },
+  {
+    "boundary": 1,
+    "batch": 4,
+    "parity": 0,
+    "dagger": true,
+    "components": 3,
+    "error": 0.0
+  },
+  {
+    "boundary": 1,
+    "batch": 4,
+    "parity": 1,
+    "dagger": false,
+    "components": 1,
+    "error": 0.0
+  },
+  {
+    "boundary": 1,
+    "batch": 4,
+    "parity": 1,
+    "dagger": false,
+    "components": 3,
+    "error": 0.0
+  },
+  {
+    "boundary": 1,
+    "batch": 4,
+    "parity": 1,
+    "dagger": true,
+    "components": 1,
+    "error": 0.0
+  },
+  {
+    "boundary": 1,
+    "batch": 4,
+    "parity": 1,
+    "dagger": true,
+    "components": 3,
+    "error": 0.0
+  },
+  {
+    "boundary": 1,
+    "batch": 8,
+    "parity": 0,
+    "dagger": false,
+    "components": 1,
+    "error": 0.0
+  },
+  {
+    "boundary": 1,
+    "batch": 8,
+    "parity": 0,
+    "dagger": false,
+    "components": 3,
+    "error": 0.0
+  },
+  {
+    "boundary": 1,
+    "batch": 8,
+    "parity": 0,
+    "dagger": true,
+    "components": 1,
+    "error": 0.0
+  },
+  {
+    "boundary": 1,
+    "batch": 8,
+    "parity": 0,
+    "dagger": true,
+    "components": 3,
+    "error": 0.0
+  },
+  {
+    "boundary": 1,
+    "batch": 8,
+    "parity": 1,
+    "dagger": false,
+    "components": 1,
+    "error": 0.0
+  },
+  {
+    "boundary": 1,
+    "batch": 8,
+    "parity": 1,
+    "dagger": false,
+    "components": 3,
+    "error": 0.0
+  },
+  {
+    "boundary": 1,
+    "batch": 8,
+    "parity": 1,
+    "dagger": true,
+    "components": 1,
+    "error": 0.0
+  },
+  {
+    "boundary": 1,
+    "batch": 8,
+    "parity": 1,
+    "dagger": true,
+    "components": 3,
+    "error": 0.0
+  },
+  {
+    "boundary": -1,
+    "batch": 1,
+    "parity": 0,
+    "dagger": false,
+    "components": 1,
+    "error": 0.0
+  },
+  {
+    "boundary": -1,
+    "batch": 1,
+    "parity": 0,
+    "dagger": false,
+    "components": 3,
+    "error": 0.0
+  },
+  {
+    "boundary": -1,
+    "batch": 1,
+    "parity": 0,
+    "dagger": true,
+    "components": 1,
+    "error": 0.0
+  },
+  {
+    "boundary": -1,
+    "batch": 1,
+    "parity": 0,
+    "dagger": true,
+    "components": 3,
+    "error": 0.0
+  },
+  {
+    "boundary": -1,
+    "batch": 1,
+    "parity": 1,
+    "dagger": false,
+    "components": 1,
+    "error": 0.0
+  },
+  {
+    "boundary": -1,
+    "batch": 1,
+    "parity": 1,
+    "dagger": false,
+    "components": 3,
+    "error": 0.0
+  },
+  {
+    "boundary": -1,
+    "batch": 1,
+    "parity": 1,
+    "dagger": true,
+    "components": 1,
+    "error": 0.0
+  },
+  {
+    "boundary": -1,
+    "batch": 1,
+    "parity": 1,
+    "dagger": true,
+    "components": 3,
+    "error": 0.0
+  },
+  {
+    "boundary": -1,
+    "batch": 4,
+    "parity": 0,
+    "dagger": false,
+    "components": 1,
+    "error": 0.0
+  },
+  {
+    "boundary": -1,
+    "batch": 4,
+    "parity": 0,
+    "dagger": false,
+    "components": 3,
+    "error": 0.0
+  },
+  {
+    "boundary": -1,
+    "batch": 4,
+    "parity": 0,
+    "dagger": true,
+    "components": 1,
+    "error": 0.0
+  },
+  {
+    "boundary": -1,
+    "batch": 4,
+    "parity": 0,
+    "dagger": true,
+    "components": 3,
+    "error": 0.0
+  },
+  {
+    "boundary": -1,
+    "batch": 4,
+    "parity": 1,
+    "dagger": false,
+    "components": 1,
+    "error": 0.0
+  },
+  {
+    "boundary": -1,
+    "batch": 4,
+    "parity": 1,
+    "dagger": false,
+    "components": 3,
+    "error": 0.0
+  },
+  {
+    "boundary": -1,
+    "batch": 4,
+    "parity": 1,
+    "dagger": true,
+    "components": 1,
+    "error": 0.0
+  },
+  {
+    "boundary": -1,
+    "batch": 4,
+    "parity": 1,
+    "dagger": true,
+    "components": 3,
+    "error": 0.0
+  },
+  {
+    "boundary": -1,
+    "batch": 8,
+    "parity": 0,
+    "dagger": false,
+    "components": 1,
+    "error": 0.0
+  },
+  {
+    "boundary": -1,
+    "batch": 8,
+    "parity": 0,
+    "dagger": false,
+    "components": 3,
+    "error": 0.0
+  },
+  {
+    "boundary": -1,
+    "batch": 8,
+    "parity": 0,
+    "dagger": true,
+    "components": 1,
+    "error": 0.0
+  },
+  {
+    "boundary": -1,
+    "batch": 8,
+    "parity": 0,
+    "dagger": true,
+    "components": 3,
+    "error": 0.0
+  },
+  {
+    "boundary": -1,
+    "batch": 8,
+    "parity": 1,
+    "dagger": false,
+    "components": 1,
+    "error": 0.0
+  },
+  {
+    "boundary": -1,
+    "batch": 8,
+    "parity": 1,
+    "dagger": false,
+    "components": 3,
+    "error": 0.0
+  },
+  {
+    "boundary": -1,
+    "batch": 8,
+    "parity": 1,
+    "dagger": true,
+    "components": 1,
+    "error": 0.0
+  },
+  {
+    "boundary": -1,
+    "batch": 8,
+    "parity": 1,
+    "dagger": true,
+    "components": 3,
+    "error": 0.0
+  }
+]

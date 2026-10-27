@@ -44,10 +44,10 @@ gradient/VJP checks, batching, checkpointing, save/reload, reduced precision,
 finite-difference gradcheck and an SGD smoke test. Tests use a nontrivial random
 SU(3) field on 4x6x4x8, not an identity field.
 
-FP64/FP32/FP16/BF16 are exposed via standard torch dtypes. This module does NOT
-yet implement NVFP4: ordinary torch.matmul does not automatically become TE
-NVFP4. The validated FP4 stack is in ../spark-fp4-stack-test. Mapping the
-site-dependent physical matrices onto that path is subsequent optimization.
+FP64/FP32/FP16/BF16 are exposed via standard torch dtypes. The original module
+stays pure PyTorch. Experimental native FP4 kernels now live in fp4_color.py,
+used by optimized_network.py. Ordinary torch.matmul does not become FP4.
+See BENCHMARKS.txt for measurements and important precision limitations.
 
 This is a correctness-first executable network, not a production-performance
 replacement. Full 56^3x96 training has not been memory/performance validated.
