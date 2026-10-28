@@ -10,6 +10,9 @@ p.add_argument('--bridge',required=True);p.add_argument('--gauge',required=True)
 p.add_argument('--steps',type=int,default=300)
 p.add_argument('--output',default='solver_tolerances.json')
 p.add_argument('--resume-cg',action='store_true',help='Reuse completed CG rows, restart the SGD trial')
+p.add_argument('--targets',nargs='+',type=float,default=[1e-2,1e-4,1e-8])
+p.add_argument('--cg-only',action='store_true')
+p.add_argument('--reuse-cg',help='Reuse matching target rows from a prior measurement')
 a=p.parse_args()
 dest=Path(a.output)
 previous=json.loads(dest.read_text()) if dest.exists() and a.resume_cg else None
@@ -18,7 +21,7 @@ if dest.exists() and not a.resume_cg:
 os.environ.setdefault('QUDA_RESOURCE_PATH',str(Path('quda-cache').resolve()))
 assert (Path(os.environ['QUDA_RESOURCE_PATH'])/'tunecache.tsv').exists(),'Missing persistent tuning cache'
 report={'dims':[56,56,56,96],'gauge':a.gauge,'seed':45,'kappa':.156,
-        'targets':[1e-2,1e-4,1e-8],'max_sgd_steps':a.steps,'completed':False,
+        'targets':a.targets,'max_sgd_steps':a.steps,'completed':False,
         'boundary':'periodic','initial_guess':'zero','batch':1,'cg':[],'sgd':{},
         'residual_definition':'FP64 QUDA ||b-Ax||/||b||, checked independently of FP4',
         'timing_definition':'setup/warmup excluded; update-only and validated wall time reported separately',
@@ -28,6 +31,11 @@ if previous:
         assert previous[key]==report[key],f'Resume configuration mismatch: {key}'
     report['cg']=previous['cg']
     report['cg_reused_from_previous_phase']=True
+if a.reuse_cg:
+    old=json.loads(Path(a.reuse_cg).read_text())
+    for key in ('dims','gauge','seed','kappa','boundary','initial_guess','batch','torch','gpu'):
+        assert old[key]==report[key],f'Reuse configuration mismatch: {key}'
+    report['cg']=[dict(row,reused_from=a.reuse_cg) for row in old['cg'] if row['target'] in a.targets]
 def save():
     tmp=dest.with_suffix('.tmp');tmp.write_text(json.dumps(report,indent=2));tmp.replace(dest)
 def sync():torch.cuda.synchronize()
@@ -70,6 +78,9 @@ try:
              'true_residual':checked,'reached':checked<=tol,
              'step_timing_note':'internal solver runtime / iterations, includes solver overhead; not individual kernel timing'}
         report['cg'].append(row);save();print('CG '+json.dumps(row),flush=True)
+    if a.cg_only:
+        report['completed']=True;save()
+        raise SystemExit(0)
     # Calibrate plain SGD on this exact operator, not an unrelated learned model.
     # Power iteration is an estimate, not a proven upper spectral bound.
     start=time.perf_counter();sol.copy_(b/bnorm)

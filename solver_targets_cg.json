@@ -1,0 +1,63 @@
+{
+  "dims": [
+    56,
+    56,
+    56,
+    96
+  ],
+  "gauge": "/team/experiments/quda-max-volume-20261026/emmy_max_vol/ens_56x96_tiled/conf.00002.bin",
+  "seed": 45,
+  "kappa": 0.156,
+  "targets": [
+    0.1,
+    0.01,
+    0.001
+  ],
+  "max_sgd_steps": 300,
+  "completed": true,
+  "boundary": "periodic",
+  "initial_guess": "zero",
+  "batch": 1,
+  "cg": [
+    {
+      "target": 0.01,
+      "iterations": 23,
+      "solve_s": 10.11012355198909,
+      "validated_wall_s": 10.469040832991595,
+      "internal_s": 9.365621032993658,
+      "mean_internal_s_per_iteration": 0.4072009144779852,
+      "true_residual": 0.009462726945164661,
+      "reached": true,
+      "step_timing_note": "internal solver runtime / iterations, includes solver overhead; not individual kernel timing",
+      "reused_from": "solver_tolerances.json"
+    },
+    {
+      "target": 0.1,
+      "iterations": 6,
+      "solve_s": 3.9180119809898315,
+      "validated_wall_s": 4.266684224989149,
+      "internal_s": 3.1775362830085214,
+      "mean_internal_s_per_iteration": 0.5295893805014202,
+      "true_residual": 0.08460977939680725,
+      "reached": true,
+      "step_timing_note": "internal solver runtime / iterations, includes solver overhead; not individual kernel timing"
+    },
+    {
+      "target": 0.001,
+      "iterations": 44,
+      "solve_s": 17.29106273900834,
+      "validated_wall_s": 17.624572629996692,
+      "internal_s": 16.580406844004756,
+      "mean_internal_s_per_iteration": 0.3768274282728354,
+      "true_residual": 0.0009069198272780375,
+      "reached": true,
+      "step_timing_note": "internal solver runtime / iterations, includes solver overhead; not individual kernel timing"
+    }
+  ],
+  "sgd": {},
+  "residual_definition": "FP64 QUDA ||b-Ax||/||b||, checked independently of FP4",
+  "timing_definition": "setup/warmup excluded; update-only and validated wall time reported separately",
+  "torch": "2.14.0a0+b2c75dd062.nv26.09",
+  "gpu": "NVIDIA GB10",
+  "quda_setup_s": 20.093209751998074
+}

@@ -22,3 +22,12 @@ monitoring overhead; use the update/solve column to compare algorithm cost.
 This is one SGD learning-rate/configuration trial, not proof that all FP4
 solvers or learned preconditioners cannot converge.
 Raw histories, target crossings, setup and calibration times: solver_tolerances.json.
+
+Requested targets 1e-1, 1e-2, 1e-3 (relative residual, not scalar loss):
+CG 1e-1: 6 iterations, mean internal 0.52959 s/iteration, solve 3.91801 s.
+CG 1e-2: 23 iterations, mean internal 0.40720 s/iteration, solve 10.11012 s.
+CG 1e-3: 44 iterations, mean internal 0.37683 s/iteration, solve 17.29106 s.
+The 1e-2 result is reused from the previous measurement; the other two were
+measured on the GPU with the same gauge/RHS and persistent tuning cache.
+FP4 SGD: none reached in 120 iterations; mean update time 2.35432 s.
+Raw CG results: solver_targets_cg.json. Table: solver_requested_targets.csv.
