@@ -23,7 +23,10 @@ def main():
     p.add_argument('--output',default='network_benchmark.json')
     p.add_argument('--reps',type=int,default=3)
     p.add_argument('--modes',nargs='+')
+    p.add_argument('--compile',action='store_true',help='Compile pure Torch baseline modes with fullgraph=True')
     a=p.parse_args()
+    if a.compile and (not a.modes or any(not m.startswith('baseline_') for m in a.modes)):
+        p.error('--compile requires explicit baseline_* modes; custom Triton modes already have compiled kernels')
     torch.manual_seed(45)
     torch.backends.cuda.matmul.allow_tf32=False
     dims=tuple(a.dims)
@@ -48,7 +51,7 @@ def main():
             yref=reference(x)
         del reference
         gc.collect();torch.cuda.empty_cache()
-        for mode,dtype in [('baseline_fp64',torch.float64),('baseline_fp32',torch.float32),
+        for mode,dtype in [('baseline_fp64',torch.float64),('baseline_fp32',torch.float32),('baseline_fp16',torch.float16),
                            ('cached_fp32',torch.float32),('cached_fp16',torch.float16),
                            ('cached_bf16',torch.bfloat16),('native_fp4_color',torch.float32),
                            ('fused_fp4',torch.float32),('fused_fp4x3',torch.float32),('fused_fp16',torch.float16)]:
@@ -60,16 +63,20 @@ def main():
             net=cls(gauge.to(device='cuda',dtype=dtype),dims,**kw)
             xx=x.to(dtype=dtype)
             synchronize();setup=time.perf_counter()-start
+            if a.compile:
+                net=torch.compile(net,fullgraph=True)
             torch.cuda.reset_peak_memory_stats()
             with torch.no_grad():
+                warm_start=time.perf_counter()
                 y=net(xx);synchronize()  # warmup, including JIT if needed
+                warm_s=time.perf_counter()-warm_start
                 samples=[]
                 for _ in range(a.reps):
                     start=time.perf_counter();y=net(xx);synchronize()
                     samples.append(time.perf_counter()-start)
                 err=((y.double()-yref).norm()/yref.norm()).item()
                 finite=torch.isfinite(y).all().item()
-            row={'batch':batch,'mode':mode,'setup_s':setup,'forward_s_samples':samples,
+            row={'batch':batch,'mode':mode,'compiled':a.compile,'compile_and_warmup_s':warm_s,'setup_s':setup,'forward_s_samples':samples,
                  'forward_s_median':sorted(samples)[len(samples)//2],
                  'relative_error_vs_fp64':err,'finite':finite,
                  'peak_allocated_GiB':torch.cuda.max_memory_allocated()/2**30}

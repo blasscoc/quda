@@ -1,0 +1,10 @@
+implementation,operation,RHS_batch,seconds_per_RHS,relative_error,error_definition
+QUDA FP64 CG,complete solve,1,58.262494169001,9.250477554487396e-09,true solve residual
+QUDA FP64,operator application,1,0.30191756499698386,,operator reference
+baseline_fp32 torch.compile,operator application,1,2.866623066991451,7.05085976632375e-08,"forward error, NOT solve residual"
+baseline_fp16 torch.compile,operator application,1,1.3389662580011645,0.0004324073796436989,"forward error, NOT solve residual"
+fused_fp4,operator application,1,2.3401142390066525,0.10502112389987804,"forward error, NOT solve residual"
+fused_fp4x3,operator application,1,5.899692791004782,0.014061230826067904,"forward error, NOT solve residual"
+fused_fp16,operator application,1,0.8836850900115678,0.00042790988511140715,"forward error, NOT solve residual"
+fused_fp4,operator application,4,0.46290815450265654,0.10501925173177916,"forward error, NOT solve residual"
+fused_fp16,operator application,4,0.24470306174771395,0.0004279356638978387,"forward error, NOT solve residual"
