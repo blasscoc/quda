@@ -1,6 +1,10 @@
 Torch Wilson forward network
 ===========================
 
+Packed FP4 forward is now available: see PACKED_FP4_RESULTS.txt.
+Run ./run_packed_forward.sh to read the saved packed model/input and write packed
+FP4 output directly. No floating-vector conversions occur in that forward path.
+
 A new standalone torch.nn.Module implementing the actual unimproved Wilson
 even/odd normal operator A = M_even^dagger M_even. This is not a surrogate
 and does not call QUDA during forward or backward. No custom CUDA or custom

@@ -1,0 +1,83 @@
+Packed FP4 input -> packed FP4 output, GB10 / 56^3x96
+===================================================
+
+Delivered standalone forward model: packed_fp4.PackedWilsonFP4.
+Native E2M1 tensor-core operands. Gauge weights, inputs, every intermediate
+vector, and outputs remain packed in memory. No FP32/FP16/FP64 vector field is
+constructed by forward. Four Dslash kernels implement the two Schur blocks.
+FP32 registers perform tensor-core accumulation, spin projection and the Schur
+subtraction; each kernel requantizes before writing its output. This is packed
+FP4 storage and transport, NOT a claim of FP4 hardware accumulation.
+
+Run the saved model immediately, without loading QUDA or a floating gauge:
+  ./run_packed_forward.sh
+This uses torch.compile(fullgraph=True) plus CUDA Graph replay. It reads only:
+  packed_forward_56x96.pt  -- packed model and selected launch configuration
+  packed_input_56x96.pt    -- packed input payload + scales
+and writes packed_output_56x96.pt in the same format. All are local artifacts,
+excluded from Git because of their size. The model and input survive process
+exit; persistent Torch/Triton caches are mounted by the launcher.
+
+Measured steady-state batch-1 full forward:
+  Previous compiled FP4, with FP32 vectors:      2.32773 seconds
+  New packed path, final standalone verification: 0.20541 seconds
+  Speedup: 11.33x, with a changed quantization schedule (see accuracy below).
+Final verification: median of 10 synchronized runs, range 0.19195–0.22181 s.
+Selected configuration: 4 sites/program, unroll 8, 1 warp/program.
+Best tuning median was 0.19883 s; we report the separate 0.20541 s verification
+rather than the minimum from the search. Setup, JIT, disk IO and initial packing
+are excluded. Complete raw timings are retained in the JSON files.
+
+The earlier 4-warp batch-4 sweep measured 0.38956 s/batch with torch.compile
+(0.09739 s/input). The final 1-warp configuration was selected and validated at
+batch 1; it has not been retuned/benchmarked at batch 4.
+
+Storage at 56^3x96:
+  Packed gauge transport payload: 1,213,857,792 bytes.
+  Gauge scales:                     404,619,264 bytes.
+  Neighbour indices (int32):         539,492,352 bytes.
+  Boundary signs (int8):             134,873,088 bytes.
+  Total model buffers:            2,292,842,496 bytes = 2.135 GiB.
+  One vector, payload + scales:      134,873,088 bytes = 128.625 MiB.
+Vectors use six times less memory than FP32 vectors, including scale metadata.
+Gauge transport cache includes forward and backward directions. Complex-matrix
+redundancy is reconstructed with nibble swaps/sign bits, not floating arrays.
+No full-precision gauge shadow is retained by the packed module.
+
+Payload format:
+  Vector codes: uint8 [batch,V/2,4,3], two E2M1 nibbles per byte.
+  Vector scales: float8_e4m3fn [batch,V/2,4], one scale per six reals.
+  Values use power-of-two scales. This is a custom compact layout feeding native
+  FP4 MMA; it is not the external TransformerEngine tensor serialization format.
+  pack_vector/unpack_vector are explicit SETUP/DIAGNOSTIC helpers, never invoked
+  by forward. Unpacking in benchmarks is outside the timed region, for validation.
+  Packed inputs must be contiguous and on the same device as the model.
+  Treat scales as part of the packed value; do not cast the module with .half().
+
+Validation and numerical change:
+Independent Torch quantize/dequantize reference passed 128 Dslash and 32 complete
+forward checks, including anisotropic geometry, both parities, dagger, temporal
+boundary signs and batches 1/4. Kernel schedules matched exactly on the full
+lattice. Warp tuning, torch.compile, CUDA Graph capture and packed save/reload
+also preserve the packed outputs exactly. PTX confirms native E2M1 instructions;
+no FP64 arithmetic is present in the selected kernel.
+
+Full-size forward relative error versus the original FP64 operator is 0.203573
+(20.36%), versus about 10.5% in the earlier FP32-intermediate FP4 implementation.
+Every intermediate is now quantized, intentionally changing the approximate map.
+The result is not a demonstrated CG/SGD solve or HMC-acceptable configuration.
+No convergence claim is made. The gauge checkpoint remains the same tiled,
+unthermalized conf.00002.bin, kappa .156, periodic fermion boundary.
+
+Reproduction / artifacts:
+  validate_packed_fp4.py -> packed_validation.json
+  benchmark_packed_fp4.py --gauge PATH -> packed_56x96_benchmark.json
+  tune_packed_fp4.py --gauge PATH -> packed_launch_tuning.json + packed artifacts
+  refine_packed_fp4.py -> packed_final_tuning.json + final selected packed model
+  run_packed_forward.sh -> packed output and a fresh timing summary
+  packed_standalone_result.json -> final independently repeated timing
+  packed_kernel_evidence.json -> selected native FP4 instruction evidence
+Benchmark/tuning scripts refuse to overwrite existing results; read saved files
+instead of rerunning measurements accidentally. The explicit standalone runner
+executes on request. Container digest and cache locations are pinned in its shell
+launcher; no external gauge or QUDA library mount is needed for that run.

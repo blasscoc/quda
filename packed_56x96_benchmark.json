@@ -1,0 +1,483 @@
+{
+  "dims": [
+    56,
+    56,
+    56,
+    96
+  ],
+  "gauge": "/team/experiments/quda-max-volume-20261026/emmy_max_vol/ens_56x96_tiled/conf.00002.bin",
+  "seed": 45,
+  "gauge_setup_s": 3.3764750429982087,
+  "torch": "2.14.0a0+b2c75dd062.nv26.09",
+  "gpu": "NVIDIA GB10",
+  "storage_bytes": {
+    "indices": 539492352,
+    "signs": 134873088,
+    "weights": 1213857792,
+    "scales": 404619264
+  },
+  "storage_dtypes": {
+    "indices": "torch.int32",
+    "signs": "torch.int8",
+    "weights": "torch.uint8",
+    "scales": "torch.float8_e4m3fn"
+  },
+  "contract": "FP4 payloads + FP8 scales in/out and between all stages; FP32 registers only; no FP64 in forward",
+  "cases": [
+    {
+      "batch": 1,
+      "sites_per_program": 1,
+      "loop_unroll": 1,
+      "warmup_compile_s": 1.3746486849995563,
+      "input_pack_s": 0.10171023700968362,
+      "packed_input_bytes": 134873088,
+      "direct_samples_s": [
+        0.859149083000375,
+        0.8401213239994831,
+        0.8553515609964961,
+        0.8432951969880378,
+        0.8480425330053549
+      ],
+      "direct_median_s": 0.8480425330053549,
+      "graph_samples_s": [
+        0.8482663600007072,
+        0.8582418980076909,
+        0.8410228209977504,
+        0.8585561890067765,
+        0.8451307140057907
+      ],
+      "graph_median_s": 0.8482663600007072,
+      "relative_error_vs_fp64": 0.20357340972855764,
+      "matches_other_schedules": true
+    },
+    {
+      "batch": 1,
+      "sites_per_program": 2,
+      "loop_unroll": 1,
+      "warmup_compile_s": 1.2910501660080627,
+      "input_pack_s": 0.10171023700968362,
+      "packed_input_bytes": 134873088,
+      "direct_samples_s": [
+        0.5591839709959459,
+        0.5582382860011421,
+        0.5675835489964811,
+        0.5576862529997015,
+        0.5604604100080905
+      ],
+      "direct_median_s": 0.5591839709959459,
+      "graph_samples_s": [
+        0.5703721409954596,
+        0.5693395589914871,
+        0.561989171008463,
+        0.6687202989996877,
+        0.6285549610038288
+      ],
+      "graph_median_s": 0.5703721409954596,
+      "relative_error_vs_fp64": 0.20357340972855764,
+      "matches_other_schedules": true
+    },
+    {
+      "batch": 1,
+      "sites_per_program": 4,
+      "loop_unroll": 1,
+      "warmup_compile_s": 1.338180923004984,
+      "input_pack_s": 0.10171023700968362,
+      "packed_input_bytes": 134873088,
+      "direct_samples_s": [
+        0.3736241310107289,
+        0.3438928300020052,
+        0.3432261389971245,
+        0.37258502199256327,
+        0.4108059339923784
+      ],
+      "direct_median_s": 0.37258502199256327,
+      "graph_samples_s": [
+        0.3559983790037222,
+        0.3433329079998657,
+        0.34617860200523864,
+        0.367803287008428,
+        0.3641317639994668
+      ],
+      "graph_median_s": 0.3559983790037222,
+      "relative_error_vs_fp64": 0.20357340972855764,
+      "matches_other_schedules": true
+    },
+    {
+      "batch": 1,
+      "sites_per_program": 8,
+      "loop_unroll": 1,
+      "warmup_compile_s": 1.732326187993749,
+      "input_pack_s": 0.10171023700968362,
+      "packed_input_bytes": 134873088,
+      "direct_samples_s": [
+        0.38936515600653365,
+        0.35305374099698383,
+        0.353028669997002,
+        0.36024453000572976,
+        0.3836360400018748
+      ],
+      "direct_median_s": 0.36024453000572976,
+      "graph_samples_s": [
+        0.3647501049999846,
+        0.35249100301007275,
+        0.3706465669965837,
+        0.42033587201149203,
+        0.4079950590094086
+      ],
+      "graph_median_s": 0.3706465669965837,
+      "relative_error_vs_fp64": 0.20357340972855764,
+      "matches_other_schedules": true
+    },
+    {
+      "batch": 1,
+      "sites_per_program": 2,
+      "loop_unroll": 8,
+      "warmup_compile_s": 5.043438865002827,
+      "input_pack_s": 0.10171023700968362,
+      "packed_input_bytes": 134873088,
+      "direct_samples_s": [
+        0.7179390039964346,
+        0.682825978990877,
+        0.7065589160047239,
+        0.7554744580120314,
+        0.6735315819969401
+      ],
+      "direct_median_s": 0.7065589160047239,
+      "graph_samples_s": [
+        0.7187667710095411,
+        0.6633602360088844,
+        0.7508722600032343,
+        0.7245777610078221,
+        0.667828580000787
+      ],
+      "graph_median_s": 0.7187667710095411,
+      "relative_error_vs_fp64": 0.20357340972855764,
+      "matches_other_schedules": true
+    },
+    {
+      "batch": 1,
+      "sites_per_program": 4,
+      "loop_unroll": 8,
+      "warmup_compile_s": 5.291644743003417,
+      "input_pack_s": 0.10171023700968362,
+      "packed_input_bytes": 134873088,
+      "direct_samples_s": [
+        0.4854375189897837,
+        0.541942220996134,
+        0.5398099529993488,
+        0.48614576300315093,
+        0.48266654599865433
+      ],
+      "direct_median_s": 0.48614576300315093,
+      "graph_samples_s": [
+        0.5173093449993758,
+        0.48015175000182353,
+        0.4967742649896536,
+        0.5409325210057432,
+        0.5373700069903862
+      ],
+      "graph_median_s": 0.5173093449993758,
+      "relative_error_vs_fp64": 0.20357340972855764,
+      "matches_other_schedules": true
+    },
+    {
+      "batch": 1,
+      "sites_per_program": 8,
+      "loop_unroll": 8,
+      "warmup_compile_s": 5.980555898000603,
+      "input_pack_s": 0.10171023700968362,
+      "packed_input_bytes": 134873088,
+      "direct_samples_s": [
+        0.3289782850042684,
+        0.32316894399991725,
+        0.367032541995286,
+        0.37401073599176016,
+        0.36780960200121626
+      ],
+      "direct_median_s": 0.367032541995286,
+      "graph_samples_s": [
+        0.3261714709951775,
+        0.32961555299698375,
+        0.3414772930118488,
+        0.33728875999804586,
+        0.3506522360112285
+      ],
+      "graph_median_s": 0.33728875999804586,
+      "relative_error_vs_fp64": 0.20357340972855764,
+      "matches_other_schedules": true,
+      "torch_compile_warmup_s": 5.070097115996759,
+      "torch_compile_samples_s": [
+        0.347416749005788,
+        0.32430451999243814,
+        0.32361280400073156,
+        0.33913520399073604,
+        0.33573097801127005
+      ],
+      "torch_compile_median_s": 0.33573097801127005
+    },
+    {
+      "batch": 4,
+      "sites_per_program": 1,
+      "loop_unroll": 1,
+      "warmup_compile_s": 1.5632046420068946,
+      "input_pack_s": 0.1754049080045661,
+      "packed_input_bytes": 539492352,
+      "direct_samples_s": [
+        0.920835149998311,
+        0.8953247009922052,
+        0.9076260440051556,
+        0.9010031149955466,
+        0.9380941049894318
+      ],
+      "direct_median_s": 0.9076260440051556,
+      "graph_samples_s": [
+        0.9162986509909388,
+        0.9442472099908628,
+        0.9211665320035536,
+        1.0188347429939313,
+        0.9022563260077732
+      ],
+      "graph_median_s": 0.9211665320035536,
+      "relative_error_vs_fp64": 0.20356745705995907,
+      "matches_other_schedules": true
+    },
+    {
+      "batch": 4,
+      "sites_per_program": 2,
+      "loop_unroll": 1,
+      "warmup_compile_s": 1.4382174420024967,
+      "input_pack_s": 0.1754049080045661,
+      "packed_input_bytes": 539492352,
+      "direct_samples_s": [
+        0.762085403999663,
+        0.6693499569955748,
+        0.6928569239971694,
+        0.7135831589985173,
+        0.6729111750028096
+      ],
+      "direct_median_s": 0.6928569239971694,
+      "graph_samples_s": [
+        0.6917154959955951,
+        0.6781997960060835,
+        0.7200359929993283,
+        0.6817842619930161,
+        0.7230627929966431
+      ],
+      "graph_median_s": 0.6917154959955951,
+      "relative_error_vs_fp64": 0.20356745705995907,
+      "matches_other_schedules": true
+    },
+    {
+      "batch": 4,
+      "sites_per_program": 4,
+      "loop_unroll": 1,
+      "warmup_compile_s": 1.4679946760006715,
+      "input_pack_s": 0.1754049080045661,
+      "packed_input_bytes": 539492352,
+      "direct_samples_s": [
+        0.40347357900463976,
+        0.38469708399497904,
+        0.36849962499400135,
+        0.39417543599847704,
+        0.4343433850008296
+      ],
+      "direct_median_s": 0.39417543599847704,
+      "graph_samples_s": [
+        0.3744571760034887,
+        0.3682323120010551,
+        0.3851520949974656,
+        0.39231574701261707,
+        0.40631970699178055
+      ],
+      "graph_median_s": 0.3851520949974656,
+      "relative_error_vs_fp64": 0.20356745705995907,
+      "matches_other_schedules": true,
+      "torch_compile_warmup_s": 1.5648092420015018,
+      "torch_compile_samples_s": [
+        0.3895623220014386,
+        0.36967937200097367,
+        0.36857394299295265,
+        0.437068294006167,
+        0.4250400090095354
+      ],
+      "torch_compile_median_s": 0.3895623220014386
+    },
+    {
+      "batch": 4,
+      "sites_per_program": 8,
+      "loop_unroll": 1,
+      "warmup_compile_s": 1.798241232012515,
+      "input_pack_s": 0.1754049080045661,
+      "packed_input_bytes": 539492352,
+      "direct_samples_s": [
+        0.3972820299968589,
+        0.41773178199946415,
+        0.4188018669956364,
+        0.4191356619994622,
+        0.3965382650058018
+      ],
+      "direct_median_s": 0.41773178199946415,
+      "graph_samples_s": [
+        0.45110280100197997,
+        0.43465566099621356,
+        0.4012671389937168,
+        0.39491556999564636,
+        0.412329723010771
+      ],
+      "graph_median_s": 0.412329723010771,
+      "relative_error_vs_fp64": 0.20356745705995907,
+      "matches_other_schedules": true
+    },
+    {
+      "batch": 4,
+      "sites_per_program": 2,
+      "loop_unroll": 8,
+      "warmup_compile_s": 5.364080115003162,
+      "input_pack_s": 0.1754049080045661,
+      "packed_input_bytes": 539492352,
+      "direct_samples_s": [
+        1.0952520509890746,
+        1.0516135560028488,
+        1.0624053229985293,
+        1.140319020007155,
+        1.0692283199896337
+      ],
+      "direct_median_s": 1.0692283199896337,
+      "graph_samples_s": [
+        1.0780681750038639,
+        1.1258411560120294,
+        1.060079796006903,
+        1.0807285269984277,
+        1.1125828020012705
+      ],
+      "graph_median_s": 1.0807285269984277,
+      "relative_error_vs_fp64": 0.20356745705995907,
+      "matches_other_schedules": true
+    },
+    {
+      "batch": 4,
+      "sites_per_program": 4,
+      "loop_unroll": 8,
+      "warmup_compile_s": 5.618835847999435,
+      "input_pack_s": 0.1754049080045661,
+      "packed_input_bytes": 539492352,
+      "direct_samples_s": [
+        0.839046540990239,
+        0.9015565100125968,
+        0.849277378001716,
+        0.8422693110042019,
+        0.8450062060001073
+      ],
+      "direct_median_s": 0.8450062060001073,
+      "graph_samples_s": [
+        0.8967829199973494,
+        0.8225275959994178,
+        0.844854253999074,
+        0.8304838289914187,
+        0.8941356440045638
+      ],
+      "graph_median_s": 0.844854253999074,
+      "relative_error_vs_fp64": 0.20356745705995907,
+      "matches_other_schedules": true
+    },
+    {
+      "batch": 4,
+      "sites_per_program": 8,
+      "loop_unroll": 8,
+      "warmup_compile_s": 6.3286294500139775,
+      "input_pack_s": 0.1754049080045661,
+      "packed_input_bytes": 539492352,
+      "direct_samples_s": [
+        0.43179682600020897,
+        0.4505838819895871,
+        0.45574134901107755,
+        0.41691690900188405,
+        0.4036864899971988
+      ],
+      "direct_median_s": 0.43179682600020897,
+      "graph_samples_s": [
+        0.42674958500720095,
+        0.42408203399099875,
+        0.40773047899710946,
+        0.43046112400770653,
+        0.46162459600600414
+      ],
+      "graph_median_s": 0.42674958500720095,
+      "relative_error_vs_fp64": 0.20356745705995907,
+      "matches_other_schedules": true
+    }
+  ],
+  "best_by_batch": {
+    "1": {
+      "batch": 1,
+      "sites_per_program": 8,
+      "loop_unroll": 8,
+      "warmup_compile_s": 5.980555898000603,
+      "input_pack_s": 0.10171023700968362,
+      "packed_input_bytes": 134873088,
+      "direct_samples_s": [
+        0.3289782850042684,
+        0.32316894399991725,
+        0.367032541995286,
+        0.37401073599176016,
+        0.36780960200121626
+      ],
+      "direct_median_s": 0.367032541995286,
+      "graph_samples_s": [
+        0.3261714709951775,
+        0.32961555299698375,
+        0.3414772930118488,
+        0.33728875999804586,
+        0.3506522360112285
+      ],
+      "graph_median_s": 0.33728875999804586,
+      "relative_error_vs_fp64": 0.20357340972855764,
+      "matches_other_schedules": true,
+      "torch_compile_warmup_s": 5.070097115996759,
+      "torch_compile_samples_s": [
+        0.347416749005788,
+        0.32430451999243814,
+        0.32361280400073156,
+        0.33913520399073604,
+        0.33573097801127005
+      ],
+      "torch_compile_median_s": 0.33573097801127005
+    },
+    "4": {
+      "batch": 4,
+      "sites_per_program": 4,
+      "loop_unroll": 1,
+      "warmup_compile_s": 1.4679946760006715,
+      "input_pack_s": 0.1754049080045661,
+      "packed_input_bytes": 539492352,
+      "direct_samples_s": [
+        0.40347357900463976,
+        0.38469708399497904,
+        0.36849962499400135,
+        0.39417543599847704,
+        0.4343433850008296
+      ],
+      "direct_median_s": 0.39417543599847704,
+      "graph_samples_s": [
+        0.3744571760034887,
+        0.3682323120010551,
+        0.3851520949974656,
+        0.39231574701261707,
+        0.40631970699178055
+      ],
+      "graph_median_s": 0.3851520949974656,
+      "relative_error_vs_fp64": 0.20356745705995907,
+      "matches_other_schedules": true,
+      "torch_compile_warmup_s": 1.5648092420015018,
+      "torch_compile_samples_s": [
+        0.3895623220014386,
+        0.36967937200097367,
+        0.36857394299295265,
+        0.437068294006167,
+        0.4250400090095354
+      ],
+      "torch_compile_median_s": 0.3895623220014386
+    }
+  },
+  "completed": true
+}
