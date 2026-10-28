@@ -96,3 +96,8 @@ Raw records: benchmark-results/hmc-memory-{fp4,fp16}.jsonl.
 Implementation is intentionally a transparent prototype. Python tile loops and
 pack/unpack/repacking overhead remain optimization targets; the isolated forward
 benchmark's speed must not be advertised as whole-trajectory throughput.
+
+Larger completed test: see HMC_96_SMOKE_RESULTS.txt. At 96^4 the full FP4
+trajectory peaked at 25.375 GiB of allocated tensors and completed/checkpointed
+in 13.84 minutes. Its proposal was rejected. Extrapolated 128^4 tensor peak is
+80.20 GiB; 128^4 has not been executed.

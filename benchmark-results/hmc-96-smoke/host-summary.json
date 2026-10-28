@@ -1,0 +1,33 @@
+{
+  "command": [
+    "./run_compact_hmc.sh",
+    "--dims",
+    "96",
+    "96",
+    "96",
+    "96",
+    "--precision",
+    "fp4",
+    "--solver-iters",
+    "2",
+    "--energy-iters",
+    "2",
+    "--steps",
+    "1",
+    "--tile",
+    "65536",
+    "--dt",
+    ".001",
+    "--checkpoint",
+    "/work/benchmark-results/hmc-96-smoke/chain.pt",
+    "--log",
+    "/work/benchmark-results/hmc-96-smoke/trajectory.jsonl"
+  ],
+  "exit_code": 0,
+  "wall_seconds": 830.110330581665,
+  "mem_total_bytes": 128501493760,
+  "baseline_mem_available_bytes": 123461181440,
+  "minimum_mem_available_bytes": 90715230208,
+  "baseline_swap_used_bytes": 1138966528,
+  "maximum_swap_used_bytes": 1138966528
+}
