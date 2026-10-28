@@ -53,7 +53,7 @@ Run benchmark_network.py with the previous full-size gauge/dim arguments plus:
   --batches 1 --modes baseline_fp32 baseline_fp16 --compile --output compiled_56x96_benchmark.json
 The custom FP4/FP16 fused paths already use compiled Triton kernels; these new
 measurements specifically compile the ordinary Torch forward network.
-QUDA's warmed FP64 application (0.301918 s) still beats every tested Torch path.
+QUDA's warmed FP64 application (0.301918 s) still beats every tested Torch path at batch 1; no batched QUDA comparison was run.
 
 Scope: complete A*x = M_even^dagger M_even*x with fixed gauge. These are Torch
 network forward timings, NOT QUDA/HMC trajectory timings. The 56^3x96 checkpoint
