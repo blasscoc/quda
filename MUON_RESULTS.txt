@@ -1,0 +1,65 @@
+Muon + packed FP4 forward, 56^3x96 (2026-10-28)
+============================================
+
+Tested the installed official torch.optim.Muon, not a hand-written surrogate.
+The forward remains PackedWilsonFP4 with packed FP4 input, output and intermediate
+vectors. To use the official optimizer, the outer loop keeps a FP32 master iterate
+and momentum, packs it for forward and unpacks the result for the approximate
+gradient A_fp4(pack(x))-b. Muon's Newton-Schulz implementation uses BF16 internally.
+Neither the optimizer nor its state is claimed to be all-FP4.
+
+Same 56^3x96 gauge, kappa .156, periodic boundary, seed-45 Gaussian RHS and zero
+initial guess as the saved CG reference. Matrix layout is [8,429,568 sites,24
+spin/color/real-imag components]. Official Muon transposes the tall update for
+Newton-Schulz, so Gram matrices are 24x24, not sites-by-sites. This is one matrix
+layout choice, not an assertion that Muon is invariant to reshaping the spinor.
+
+Both forward and optimizer step use torch.compile. Momentum .95, Nesterov=True,
+5 Newton-Schulz iterations, original shape-dependent learning-rate adjustment,
+weight_decay=0. Disabling weight decay preserves the intended unregularized
+linear-system objective. Gradients are explicitly assigned approximations to
+the original quadratic gradient; no backward/STE through FP4 quantization.
+
+Three constant-learning-rate pilots, 20 steps each:
+  lr .25: best packed true residual .326712; final .326712.
+  lr .75: best .312403; final .503245.
+  lr 2.0: best .331040; final .598927.
+Selected lr .25 by final pilot residual; continued its parameter and momentum
+state. Stopped at step 60 when two 20-step windows showed <1% improvement.
+Best packed residual .301470 at step 24; final .369909 at step 60.
+None reached 1e-1, 1e-2 or 1e-3. In total, 100 non-warmup updates were executed
+(60 pilot updates plus 40 continuation updates); the selected trajectory is 60.
+
+Mean selected-trajectory time per update, excluding diagnostics:
+  pack master iterate:         0.00850 seconds
+  packed FP4 forward:          0.52654 seconds
+  unpack/construct gradient:   0.01540 seconds
+  Muon optimizer update:      0.11875 seconds
+  total:                      0.66919 seconds
+  independent diagnostics:    0.49930 seconds additional on average
+The 0.52654 s forward is measured in this mixed QUDA/Muon workload; it differs
+from the prior isolated 0.20541 s forward benchmark. Do not substitute the
+isolated number into these iteration timings. This difference was not profiled.
+
+Primary true residual is ||A_FP64*unpack(pack(x))-b||/||b||, i.e. the solution
+actually presented to the packed forward. The FP32 master residual is separately
+checked every ten steps. Every check also records:
+  actual quadratic loss .5*x^T*A_FP64*x - b^T*x;
+  that loss divided by ||b||^2;
+  normalized residual loss .5*||A_FP64*x-b||^2/||b||^2.
+At the best packed residual: raw quadratic loss -94,192,500.66, normalized
+quadratic loss -0.465727, normalized residual loss 0.0454421. A negative quadratic
+loss is expected; it is zero at the zero initial guess and can decrease below zero.
+
+This bounded constant-rate trial did not resolve convergence. It is not proof
+that other matrix layouts, learning-rate schedules, precisions or preconditioners
+cannot help. The previous SGD experiment used a different FP4 quantization path,
+so its best residual is not a controlled optimizer-only comparison with this run.
+
+Saved raw results: muon_fp4_results.json (all timings/losses/residuals).
+Reproduce: ./run_muon_fp4.sh --output NEW_RESULT.json
+Existing outputs block accidental repeated GPU work. Tuning and compilation
+caches are persistent. Main implementation: benchmark_muon_fp4.py.
+The container is pinned in the shell launcher. Official implementation inspected:
+torch.optim._muon._single_tensor_muon, _zeropower_via_newtonschulz, _adjust_lr.
+Public implementation: https://github.com/pytorch/pytorch/blob/main/torch/optim/_muon.py
