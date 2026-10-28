@@ -101,3 +101,13 @@ Larger completed test: see HMC_96_SMOKE_RESULTS.txt. At 96^4 the full FP4
 trajectory peaked at 25.375 GiB of allocated tensors and completed/checkpointed
 in 13.84 minutes. Its proposal was rejected. Extrapolated 128^4 tensor peak is
 80.20 GiB; 128^4 has not been executed.
+
+Hamiltonian diagnostics: when diagnostics are enabled (default), each kick and
+drift records before/after total H and gauge, kinetic and fermion contributions.
+Live hamiltonian_transition events and final hamiltonian_transitions retain each
+occurrence separately. operation_seconds excludes the subsequent energy check;
+hamiltonian_diagnostic_seconds reports that extra evaluation including its solve.
+The final after-kick energy is reused for acceptance. --no-diagnostics retains
+only the normal initial/final evaluations. These are approximate Hamiltonians
+using the configured fixed energy-iters and precision, not an FP64 reference.
+Validated on 4^4 with identical endpoint H and acceptance with diagnostics off.

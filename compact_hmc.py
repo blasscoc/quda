@@ -292,7 +292,11 @@ class HMC:
     def energy(self, phi, mom, iterations):
         self.solve_label = 'hamiltonian'
         x = self.solve(phi, iterations)
-        return self.gauge_action()+self.kinetic(mom)+self.dot(phi, x)
+        gauge, kinetic, fermion = self.gauge_action(), self.kinetic(mom), self.dot(phi, x)
+        total = gauge+kinetic+fermion
+        if self.diagnostics:
+            self.energy_components = dict(gauge=float(gauge), kinetic=float(kinetic), fermion=float(fermion), total=float(total))
+        return total
 
     def force_tile(self, mu, p, ids, left, right):
         """Derivative along exp(theta_a T_a)U. Autograd retains one tile only.
@@ -359,18 +363,43 @@ class HMC:
         eta = self.random_vector()
         phi = self.schur(eta, dagger=True)
         del eta
+        transitions = []
         h0 = self.energy(phi, mom, energy_iterations)
+        previous = dict(self.energy_components) if self.diagnostics else None
+        last_h = h0
+
+        def advance(label, operation):
+            nonlocal previous, last_h
+            if self.diagnostics:
+                torch.cuda.synchronize()
+                start = time.perf_counter()
+            operation()
+            if self.diagnostics:
+                torch.cuda.synchronize()
+                operation_seconds = time.perf_counter()-start
+                start = time.perf_counter()
+                last_h = self.energy(phi, mom, energy_iterations)
+                torch.cuda.synchronize()
+                after = dict(self.energy_components)
+                row = dict(stage=label, before=previous, after=after,
+                           delta_h=after['total']-previous['total'],
+                           operation_seconds=operation_seconds,
+                           hamiltonian_diagnostic_seconds=time.perf_counter()-start)
+                transitions.append(row)
+                print(json.dumps(dict(event='hamiltonian_transition', **row)), flush=True)
+                previous = after
+
         for i in range(steps):
-            self.kick(mom, phi, dt*(.5 if i == 0 else 1.), iterations)
-            self.drift(mom, dt)
-        self.kick(mom, phi, dt*.5, iterations)
-        h1 = self.energy(phi, mom, energy_iterations)
+            advance(f'kick_{i+1}', lambda: self.kick(mom, phi, dt*(.5 if i == 0 else 1.), iterations))
+            advance(f'drift_{i+1}', lambda: self.drift(mom, dt))
+        advance('final_half_kick', lambda: self.kick(mom, phi, dt*.5, iterations))
+        h1 = last_h if self.diagnostics else self.energy(phi, mom, energy_iterations)
         delta = float(h1-h0)
         accepted = math.isfinite(delta) and math.log(max(float(torch.rand((), device='cuda')), 1.e-30)) < -delta
         if not accepted:
             self.gauge = backup
             self.refresh()
-        return dict(h_initial=float(h0), h_final=float(h1), delta_h=delta, accepted=accepted)
+        return dict(h_initial=float(h0), h_final=float(h1), delta_h=delta, accepted=accepted, hamiltonian_transitions=transitions)
 
     @timed
     def checkpoint(self, path, config, completed):
