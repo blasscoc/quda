@@ -170,3 +170,21 @@ Raw results: compiled_fp4_56x96_benchmark.json. Compiled kernels persist in the
 existing torch-compile-cache/ and triton-cache/ mounts. Reproduce with the same
 container/environment and full-size gauge arguments, adding:
   --batches 1 4 --modes fused_fp4 --compile --output compiled_fp4_56x96_benchmark.json
+
+Iterative solver comparison (2026-10-28):
+See SOLVER_RESULTS.txt and solver_tolerances.csv for the requested time-to-target
+table. solver_tolerances.json preserves every FP4 SGD update time and independently
+computed FP64 residual. On the same 56^3x96 problem, CG reached 1e-2 / 1e-4 / 1e-8
+in 23 / 65 / 153 iterations and 10.11 / 24.84 / 57.55 seconds respectively.
+Compiled FP4 vanilla SGD averaged 2.3543 seconds per update, versus CG's average
+internal 0.37–0.41 seconds per iteration. SGD reached none of the targets: best
+true residual 0.15238 at step 14, final 0.20525 after 120 steps. It stopped at the
+predefined stagnation check, costing 282.52 seconds of updates plus 44.33 seconds
+of residual checks (327.10 seconds measured loop elapsed, including logging).
+SGD learning rate 0.3825524 was calibrated as 0.8 / a 20-step power estimate of
+the largest FP64 eigenvalue. No momentum/weight decay. This measures this specific
+approximate-gradient FP4 solver, not the best possible FP4 solver.
+Use run_solver_benchmark.sh for the experiment; existing result files block
+accidental reruns. summarize_solvers.py regenerates the table from saved data
+without GPU execution. --resume-cg explicitly reuses completed CG target rows.
+QUDA unused allocator pools are released before building the Torch gauge cache.
