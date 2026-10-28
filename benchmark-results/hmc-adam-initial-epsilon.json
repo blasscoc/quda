@@ -1,0 +1,63 @@
+{
+  "scope": "Exploratory epsilon=1e-8 runs, untuned; timing/memory excluded because previous backend instances were still retained.",
+  "results": [
+    {
+      "components": 1,
+      "settings": {
+        "algorithm": "adam",
+        "iterations": 24,
+        "residual_refresh_every": 0,
+        "learning_rate": 0.1,
+        "momentum": 0.0,
+        "nesterov": false,
+        "betas": [
+          0.9,
+          0.999
+        ],
+        "epsilon": 1e-08,
+        "muon_ns_steps": 5,
+        "stopping": {
+          "rtol": 0.1,
+          "atol": null,
+          "min_iterations": 0,
+          "check_every": 2,
+          "stagnation_checks": 4,
+          "min_relative_improvement": 0.001,
+          "divergence_factor": null
+        }
+      },
+      "actual_iterations": 8,
+      "ending_relative_residual": 821.6175813122965,
+      "stop_reason": "stagnated"
+    },
+    {
+      "components": 2,
+      "settings": {
+        "algorithm": "adam",
+        "iterations": 24,
+        "residual_refresh_every": 0,
+        "learning_rate": 0.1,
+        "momentum": 0.0,
+        "nesterov": false,
+        "betas": [
+          0.9,
+          0.999
+        ],
+        "epsilon": 1e-08,
+        "muon_ns_steps": 5,
+        "stopping": {
+          "rtol": 0.1,
+          "atol": null,
+          "min_iterations": 0,
+          "check_every": 2,
+          "stagnation_checks": 4,
+          "min_relative_improvement": 0.001,
+          "divergence_factor": null
+        }
+      },
+      "actual_iterations": 8,
+      "ending_relative_residual": 241.49190874400838,
+      "stop_reason": "stagnated"
+    }
+  ]
+}

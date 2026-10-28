@@ -33,8 +33,8 @@ if __name__=='__main__':
  torch.manual_seed(4);base=build_model(small);base.cold()
  b=base.trajectory(2,.001,2,1,initial_energy_iterations=3,final_energy_iterations=4)
  for key in ('h_initial','h_final','delta_h','accepted'):assert a[key]==b[key],key
- observed=json.loads(Path('runs/config-smoke/results.jsonl').read_text().splitlines()[0])
- solves=observed['solves'];assert len(solves)==13 and sum(len(z['iterations']) for z in solves)==29
+ torch.manual_seed(45);ten=build_model(cfg);ten.cold();HMCTrajectory(ten)(cfg)
+ solves=ten.solves;assert len(solves)==13 and sum(len(z['iterations']) for z in solves)==29
  assert sum(z['label']=='force' for z in solves)==11
- assert observed['timings']['drift']['calls']==10
+ assert ten.timings['drift']['calls']==10
  print('PASS: real module hooks, stage budgets, exact wrapped/unwrapped behavior, 10-step smoke counts')

@@ -1,0 +1,85 @@
+{
+  "date": "2026-10-28",
+  "code": {
+    "commit": "8157a47d53f90da4e99344da1bf6ff1af232c144",
+    "dirty": true,
+    "source_sha256": {
+      "analyze_fp4_roundoff.py": "194da56979951385a2728f914b4e3b37c493d4193a72e0b0c1ba9c3fe6607f83",
+      "benchmark_cg.py": "0fa71f239ccd765971e4e8b53647ef684e7f0fd5db661f50fdda946c96f5352b",
+      "benchmark_hmc_solvers.py": "6cb7f79c23af8001f54c8d3073dc22e99fd2698b817764414e7e619a6ed1080f",
+      "benchmark_muon_fp4.py": "0e4f62408906ccb4d3013e2f349a80653987b7f06be2ef6b0974ebcd4baa734e",
+      "benchmark_network.py": "ec3f1c5cad67785a70cd775d51f59a21b98d70b9eccd3ba9d3a11e4246610f24",
+      "benchmark_packed_fp4.py": "9c25aedefa645700168f890373b13c2fd5dc2daaf59bdbf86c343140cb08cc62",
+      "benchmark_solvers.py": "91908d446b89c097cc855817d62338f17059bf9a5767e689e26faba3e9d2dfb5",
+      "compact_hmc.py": "fb3ad53224cbdaa5ede9bab936b1b52d9032ce4cad10b1dcc7fba065734f368a",
+      "demo_fp4_roundoff.py": "bacd369cfe334c7100a337e3b820d7d72c94acc76be52042e02f12db483ec0f8",
+      "fp4_color.py": "3bb1fccf798a1655d1441bbc90393a4862a5b41c66fd94d325810fb362056e2f",
+      "fp4_momentum.py": "0831b892435b6d49ad9bde26d671c3859a6ed26697e25218525866c577a7b024",
+      "fp4_research_kernel.py": "755aafa631f4e11afe641cdcc24c85e7ef500b9626296869db74aa27f61382ac",
+      "fp4_roundoff.py": "4c1100242452f691203e5e302e465ea03180a1a86ada241a53d59e6ec3810a7e",
+      "hmc_config.py": "6235d30755ad3b7a67e69075b88c2963a7cfee1ee0d73cfcc17fe379694c7555",
+      "hmc_layers.py": "48b050d77ac573b9841faacaa01a615d1ca0d6aa3dbe5f1333b377688968ae4d",
+      "hmc_solvers.py": "be6dac88fefa3a7fe0a62dac5b46c6686deef3277759d7a68c24c642b582121b",
+      "isolated_forward.py": "34979caa7bc7a7d827b92be6b895860e1b5e62769b5498d23ecd0e947cf3cc06",
+      "optimized_network.py": "a5558a18e3576df743b9f4615b53f2037e447824784419d61c9a22d5fa1dcf1e",
+      "packed_fp4.py": "74ca8300ef625ae66ee0b2351e647383d971a6ea85b8dd35159ab6c2ef2a190e",
+      "prepare_forward_artifacts.py": "0bff6a0e7645e38cd94f4e1a66b3af6de5500e3e25d14746984068035671ebc5",
+      "reduced_forward.py": "96ac9bb2b70f0364d3197ecf79ee96a78c0ca5e25fbf27958151b9f22cf77f0b",
+      "refine_packed_fp4.py": "c1bbe65060841b1f609f6f6f4a28f5446043f4f2c783b237da9916256ef8973a",
+      "replay.py": "f6b8dda11e9afdcd03a571b1bd8682e0ba4c20105c63e8bdffef611e8ddd806d",
+      "run_hmc_config.py": "ff18f923b64cb8726403c7163cf53fd185c10221e60150adf0fafac5a4d7e331",
+      "run_packed_forward.py": "0424ac78ecaee877d90a220897f12abfeb935c56df61c23017b796ee11427294",
+      "summarize_precision_runs.py": "e62ffae158dde52ac07c2ed5d7195e2ec39cca34999131c9368f8c97af2dc9fd",
+      "summarize_solvers.py": "a6e3441c274af1991ee5847324370fa0cd1da1817493959c14f154d1055052af",
+      "test_compact_hmc.py": "4dfa11b9fd72260465fd953a9462e3259bb9d027b4673e6ff215386c22e7c22c",
+      "test_fp4_roundoff.py": "5cefd27abb6a2b437fe35505735ddcaec23cd02a4f5a25fad9d0999b8409f40d",
+      "test_hmc_config.py": "c835dab8223b6b260f1219155565df227f42322a99c44e24cfb0926248acc8e0",
+      "test_hmc_solvers.py": "8e9c787193496bf3362aa23e6b35f50d61f5a080ddde62c4431ed10f86ceebad",
+      "tune_packed_fp4.py": "c16aecae69193fd47dfa33cc1c33336b493442d2ea360810abd60c6890b344d6",
+      "validate.py": "5328991f3d379a0184554a45fa78317e6e658defc4b338c0b2cc3d5ddd56cdea",
+      "validate_fp4.py": "bcbea5fcc0db16175824e2132c0226367a41f6ab2ddb0df36463f18db43cc038",
+      "validate_packed_fp4.py": "8636573429151df5c283033e7fde7cef4878c4c8ca2ec1cd3a19c3ecdddd44a8",
+      "validate_reduced.py": "14b2421cac0e94965bbaf7e26b0b33a7b730d45718c4fe425e56b734beb1379a",
+      "wilson_network.py": "0ce34e75f19e6a7d373e38ffeb01f64e6933f7fe59edd794d2a543e1849da458"
+    }
+  },
+  "device": "DGX Spark GB10",
+  "tests": {
+    "solver_contract": {
+      "checks": [
+        "PASS stock Torch SGD/Adam/tile-Muon equivalence over three updates and unequal tiles",
+        "PASS convergence, minimum/check cadence, zero RHS, stagnation, divergence, breakdown, nonfinite",
+        "PASS all solvers/all formats and both FP4 components; packed state byte accounting",
+        "PASS stage dispatch, actual HMC execution, exception rollback, energy abort, unconverged rejection",
+        "PASS invalid policy/config rejection",
+        "PASS mixed-solver CLI checkpoint/resume equivalence and TensorBoard summaries"
+      ],
+      "log_sha256": "6432d0197bc17cd28658427d565b6c87d57a3a8e87bce366c41692d0aaf02754"
+    },
+    "config_modules": {
+      "checks": [
+        "PASS: schema validation and JSON roundtrip",
+        "PASS: real module hooks, stage budgets, exact wrapped/unwrapped behavior, 10-step smoke counts"
+      ],
+      "log_sha256": "1a8f5c40dba0833031a3c40c53dbfd715a4a6818bc29d75be4ca95dab30f90e6"
+    },
+    "fp4_roundoff": {
+      "checks": [
+        "PASS: operator/reference, scaling, SR bias, compact momentum, stage energies, checkpoint/restart"
+      ],
+      "log_sha256": "a777d4dd6cf1b8fb50e736b33e0891437d5ee785a3d9bddb70ca4f2da22ca707"
+    },
+    "legacy_precisions": {
+      "checks": [
+        "PASS: force, fixed iteration count, all precision modes, rejection, restart, storage ratios"
+      ],
+      "log_sha256": "26e05fa3d389701677ceecf70289f2108f39871ccafe4a1393a03d2e2bec565b"
+    }
+  },
+  "gpu_smoke": "benchmark-results/hmc-solvers-32.json",
+  "limitations": [
+    "Approximate packed operator residual; no exact sampling certification.",
+    "Muon orthogonalizes independent tile matrices.",
+    "Optional integrator rejection guards are experimental, not exact dynamic HMC."
+  ]
+}

@@ -16,6 +16,9 @@ def build_model(cfg):
     h.diagnostics=d['diagnostics']['enabled'];h.residual_every=d['diagnostics']['residual_every']
     h.hamiltonian_each_stage=d['diagnostics']['hamiltonian_each_stage'];h.stable_energy=q['energy_reduction']=='fp64'
     h.solver_refresh_intervals={k:v['residual_refresh_every'] for k,v in d['solvers'].items()}
+    h.solver_policies=d['solvers']
+    h.integrator_stopping=d['integrator']['stopping']
+    h.configuration=cfg.to_dict()
     return h
 
 def clean(v):
@@ -79,8 +82,12 @@ def main():
                     for key in ('seconds','operator_seconds','diagnostic_seconds','recursive_relative_residual','recomputed_relative_residual'):
                         value=row.get(key)
                         if value is not None:writer.add_scalar('solver/'+solve['label']+'/'+key,value,solver_step)
-            for key in ('h_initial','h_final','delta_h','seconds','peak_allocated_bytes'):
-                writer.add_scalar('trajectory/'+key,result[key],completed+n+1)
+                for key in ('actual_iterations','seconds_per_iteration','ending_relative_residual','persistent_state_bytes'):
+                    if solve.get(key) is not None:writer.add_scalar('solve_summary/'+solve['label']+'/'+key,solve[key],solver_step)
+                writer.add_text('solve_summary/'+solve['label']+'/stop_reason',solve['stop_reason'],solver_step)
+            for key in ('h_initial','h_final','delta_h','seconds','peak_allocated_bytes','completed_steps'):
+                if result.get(key) is not None:writer.add_scalar('trajectory/'+key,result[key],completed+n+1)
+            writer.add_text('trajectory/stop_reason',result['stop_reason'],completed+n+1)
             writer.add_scalar('trajectory/accepted',int(result['accepted']),completed+n+1)
             for stage in result['hamiltonian_transitions']:
                 for side in ('before','after'):

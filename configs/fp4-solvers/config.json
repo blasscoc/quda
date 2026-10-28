@@ -1,0 +1,26 @@
+{
+  "physics": {"lattice": [32, 32, 32, 32]},
+  "precision": {
+    "format": "fp4", "solver_components": 2,
+    "gauge_representation": "identity_plus_correction",
+    "momentum_components": 2, "energy_reduction": "fp64"
+  },
+  "integrator": {"steps": 1, "step_size": 0.001},
+  "solvers": {
+    "force": {
+      "algorithm": "sgd", "learning_rate": 0.25, "iterations": 24,
+      "stopping": {"rtol": 0.1, "min_iterations": 2, "check_every": 2,
+                   "stagnation_checks": 4, "divergence_factor": 10.0}
+    },
+    "initial_energy": {
+      "algorithm": "cg", "iterations": 24, "residual_refresh_every": 4,
+      "stopping": {"rtol": 0.03, "check_every": 2}
+    },
+    "final_energy": {
+      "algorithm": "cg", "iterations": 24, "residual_refresh_every": 4,
+      "stopping": {"rtol": 0.03, "check_every": 2}
+    },
+    "diagnostic_energy": {"algorithm": "cg", "iterations": 12}
+  },
+  "diagnostics": {"enabled": true, "residual_every": 4, "hamiltonian_each_stage": false}
+}
