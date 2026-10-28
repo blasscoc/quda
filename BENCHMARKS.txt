@@ -144,3 +144,29 @@ Next hypotheses (not established results):
 Primary API reference:
 https://triton-lang.org/main/python-api/generated/triton.language.dot_scaled.html
 Emitted instructions and runtime checks establish native support on this stack.
+
+Full FP4 graph compilation (2026-10-28):
+CachedWilsonNetwork.compiled_forward() wraps torch.compile(fullgraph=True).
+The GPU graph includes all four custom Triton Dslash launches and the surrounding
+Torch operations. An eager stale-gauge check precedes each compiled invocation;
+that guard was tested with a mutated gauge. Use compiled_forward(), rather than
+calling torch.compile on this experimental cached module directly.
+
+An initial default compilation changed the large-lattice result by 4.10e-5
+relative to eager FP4: fused floating-point rounding affects later quantization.
+The supported Inductor option emulate_precision_casts=True preserves those
+rounding boundaries (and disables generated-kernel FP fusion on this stack).
+Final full-size outputs match eager FP4 exactly for batches 1 and 4.
+
+56^3x96, fullgraph FP4, three timed samples after compilation/warmup:
+  batch 1: 2.32773 s/batch and s/RHS; compile+warmup 7.74541 s.
+  batch 4: 1.71627 s/batch, 0.42907 s/RHS; compile+warmup 6.01247 s.
+Forward relative error versus FP64 remains 0.10502. This is still an approximate
+forward application, not a converged CG solve. Compared with earlier unwrapped
+measurements (2.34011 s for batch 1, 1.85163 s for batch 4), the gain is negligible
+at batch 1 and modest at batch 4. Separate short runs are not a statistical proof
+of speedup; the batch-4 random input stream also differs between these runs.
+Raw results: compiled_fp4_56x96_benchmark.json. Compiled kernels persist in the
+existing torch-compile-cache/ and triton-cache/ mounts. Reproduce with the same
+container/environment and full-size gauge arguments, adding:
+  --batches 1 4 --modes fused_fp4 --compile --output compiled_fp4_56x96_benchmark.json

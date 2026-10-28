@@ -23,10 +23,10 @@ def main():
     p.add_argument('--output',default='network_benchmark.json')
     p.add_argument('--reps',type=int,default=3)
     p.add_argument('--modes',nargs='+')
-    p.add_argument('--compile',action='store_true',help='Compile pure Torch baseline modes with fullgraph=True')
+    p.add_argument('--compile',action='store_true',help='Compile the full forward graph, including fused Triton calls')
     a=p.parse_args()
-    if a.compile and (not a.modes or any(not m.startswith('baseline_') for m in a.modes)):
-        p.error('--compile requires explicit baseline_* modes; custom Triton modes already have compiled kernels')
+    if a.compile and (not a.modes or 'native_fp4_color' in a.modes):
+        p.error('--compile requires explicit modes; use fused_fp4 for the FP4 path')
     torch.manual_seed(45)
     torch.backends.cuda.matmul.allow_tf32=False
     dims=tuple(a.dims)
@@ -63,8 +63,12 @@ def main():
             net=cls(gauge.to(device='cuda',dtype=dtype),dims,**kw)
             xx=x.to(dtype=dtype)
             synchronize();setup=time.perf_counter()-start
+            eager_y=None
             if a.compile:
-                net=torch.compile(net,fullgraph=True)
+                with torch.no_grad():
+                    eager_y=net(xx)
+                    synchronize()
+                net=net.compiled_forward() if isinstance(net,CachedWilsonNetwork) else torch.compile(net,fullgraph=True)
             torch.cuda.reset_peak_memory_stats()
             with torch.no_grad():
                 warm_start=time.perf_counter()
@@ -76,9 +80,12 @@ def main():
                     samples.append(time.perf_counter()-start)
                 err=((y.double()-yref).norm()/yref.norm()).item()
                 finite=torch.isfinite(y).all().item()
+                compiled_error=None if eager_y is None else ((y.double()-eager_y.double()).norm()/eager_y.double().norm()).item()
+                if compiled_error is not None:assert compiled_error<1e-5,compiled_error
             row={'batch':batch,'mode':mode,'compiled':a.compile,'compile_and_warmup_s':warm_s,'setup_s':setup,'forward_s_samples':samples,
                  'forward_s_median':sorted(samples)[len(samples)//2],
                  'relative_error_vs_fp64':err,'finite':finite,
+                 'relative_error_vs_eager':compiled_error,
                  'peak_allocated_GiB':torch.cuda.max_memory_allocated()/2**30}
             assert finite,row
             if mode=='cached_fp32':assert err<1e-5,row
@@ -90,7 +97,7 @@ def main():
             if mode.startswith('fused_'):
                 from fp4_color import fused_dslash_fp4
                 Path(mode+'.ptx').write_text(fused_dslash_fp4.last_kernel.asm['ptx'])
-            del net,xx,y
+            del net,xx,y,eager_y
             gc.collect();torch.cuda.empty_cache()
         del x,yref
         gc.collect();torch.cuda.empty_cache()

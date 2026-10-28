@@ -1,0 +1,49 @@
+{
+  "dims": [
+    56,
+    56,
+    56,
+    96
+  ],
+  "gauge_source": "/team/experiments/quda-max-volume-20261026/emmy_max_vol/ens_56x96_tiled/conf.00002.bin",
+  "cases": [
+    {
+      "batch": 1,
+      "mode": "fused_fp4",
+      "compiled": true,
+      "compile_and_warmup_s": 7.745409843002562,
+      "setup_s": 3.783929691009689,
+      "forward_s_samples": [
+        2.3442582090065116,
+        2.327729768003337,
+        2.2600446550059132
+      ],
+      "forward_s_median": 2.327729768003337,
+      "relative_error_vs_fp64": 0.10502112389987804,
+      "finite": true,
+      "relative_error_vs_eager": 0.0,
+      "peak_allocated_GiB": 33.94799995422363
+    },
+    {
+      "batch": 4,
+      "mode": "fused_fp4",
+      "compiled": true,
+      "compile_and_warmup_s": 6.012468275002902,
+      "setup_s": 3.771668477987987,
+      "forward_s_samples": [
+        1.7162654810090316,
+        1.7926542459899792,
+        1.7093907939997735
+      ],
+      "forward_s_median": 1.7162654810090316,
+      "relative_error_vs_fp64": 0.10502047713741343,
+      "finite": true,
+      "relative_error_vs_eager": 0.0,
+      "peak_allocated_GiB": 63.34179878234863
+    }
+  ],
+  "torch": "2.14.0a0+b2c75dd062.nv26.09",
+  "gpu": "NVIDIA GB10",
+  "fused_group_sites": 2,
+  "note": "FP4 is native color GEMM operands only, FP32 accumulation and FP32 external state; no all-FP4 claim."
+}

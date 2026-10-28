@@ -39,6 +39,17 @@ class CachedWilsonNetwork(WilsonNormalNetwork):
         self._cache_version=self.gauge._version
         return result
 
+    def compiled_forward(self):
+        """Full graph GPU computation, with an eager stale-gauge guard per call."""
+        # Preserve the eager rounding at Schur subtraction boundaries: an FMA
+        # can perturb an FP4 quantization decision in the following Dslash.
+        compiled=torch.compile(self,fullgraph=True,options={'emulate_precision_casts':True})
+        def checked(x):
+            if self.gauge._version!=self._cache_version:
+                raise RuntimeError('Gauge was modified: call refresh_cache() before applying the cached operator')
+            return compiled(x)
+        return checked
+
     @staticmethod
     def spin_project(x,mu,sign):
         # Sparse signed permutation gamma, equivalent to dense 8x8 projector.
@@ -55,7 +66,7 @@ class CachedWilsonNetwork(WilsonNormalNetwork):
 
     def dslash(self,x,output_parity,dagger=False):
         self._check(x)
-        if self.gauge._version!=self._cache_version:
+        if not torch.compiler.is_compiling() and self.gauge._version!=self._cache_version:
             raise RuntimeError('Gauge was modified: call refresh_cache() before applying the cached operator')
         if self.fused:
             from fp4_color import fused_dslash_fp4

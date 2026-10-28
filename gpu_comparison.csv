@@ -8,3 +8,5 @@ fused_fp4x3,operator application,1,5.899692791004782,0.014061230826067904,"forwa
 fused_fp16,operator application,1,0.8836850900115678,0.00042790988511140715,"forward error, NOT solve residual"
 fused_fp4,operator application,4,0.46290815450265654,0.10501925173177916,"forward error, NOT solve residual"
 fused_fp16,operator application,4,0.24470306174771395,0.0004279356638978387,"forward error, NOT solve residual"
+fused_fp4 torch.compile,operator application,1,2.327729768003337,0.10502112389987804,"forward error, NOT solve residual"
+fused_fp4 torch.compile,operator application,4,0.4290663702522579,0.10502047713741343,"forward error, NOT solve residual"

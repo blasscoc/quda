@@ -150,8 +150,12 @@ def fused_dslash_fp4(weights,indices,signs,x,dagger=False,components=1,group_sit
     x=x.contiguous()
     b,v=x.shape[:2]
     y=torch.empty_like(x)
-    fused_dslash_fp4.last_kernel=_fused_dslash_fp4[(triton.cdiv(v,group_sites),)](weights,x,indices,signs,y,v,b,
-        max(16,triton.next_power_of_2(b*4)),dagger,components,group_sites,num_warps=4)
+    if torch.compiler.is_compiling():
+        _fused_dslash_fp4[(triton.cdiv(v,group_sites),)](weights,x,indices,signs,y,v,b,
+            max(16,triton.next_power_of_2(b*4)),dagger,components,group_sites,num_warps=4)
+    else:
+        fused_dslash_fp4.last_kernel=_fused_dslash_fp4[(triton.cdiv(v,group_sites),)](weights,x,indices,signs,y,v,b,
+            max(16,triton.next_power_of_2(b*4)),dagger,components,group_sites,num_warps=4)
     return y
 
 
