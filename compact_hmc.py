@@ -214,6 +214,7 @@ class HMC:
             solve_record = dict(index=len(self.solves)+1, rhs_norm=float(rr.sqrt()), iterations=[], label=getattr(self, 'solve_label', 'unspecified'))
             self.solves.append(solve_record)
             print(json.dumps({'event': 'solve_start', 'index': solve_record['index'], 'label': solve_record['label']}), flush=True)
+        operator = getattr(self, 'operator_layer', self.apply)
         rhs_rr = rr.clone()
         # Fixed number of applications, no convergence checks or host transfers.
         for iteration in range(iterations):
@@ -221,7 +222,7 @@ class HMC:
                 torch.cuda.synchronize()
                 iteration_start = time.perf_counter()
                 op_start = iteration_start
-            ap = self.apply(p)
+            ap = operator(p)
             if self.diagnostics:
                 torch.cuda.synchronize()
                 operator_seconds = time.perf_counter()-op_start
@@ -235,7 +236,7 @@ class HMC:
             refreshed = bool(interval and (iteration+1) % interval == 0)
             if refreshed:
                 del ap
-                ap = self.apply(x)
+                ap = operator(x)
                 self.axpy(r, 1., rhs, -1., ap)
             new = self.dot(r, r)
             ratio = torch.zeros_like(rr) if refreshed else torch.where(rr > 1.e-30, new/rr.clamp_min(1.e-30), 0.)
@@ -246,16 +247,20 @@ class HMC:
                 torch.cuda.synchronize()
                 iteration_seconds = time.perf_counter()-iteration_start
                 diagnostic_start = time.perf_counter()
-                ax = self.apply(x)
-                self.axpy(ax, 1., rhs, -1., ax)
-                true_rr = self.dot(ax, ax)
-                del ax
+                period = getattr(self, 'residual_every', 1)
+                measure = period > 0 and ((iteration+1) % period == 0 or iteration+1 == iterations)
+                true_rr = None
+                if measure:
+                    ax = operator(x)
+                    self.axpy(ax, 1., rhs, -1., ax)
+                    true_rr = self.dot(ax, ax)
+                    del ax
                 torch.cuda.synchronize()
                 row = dict(iteration=iteration+1, seconds=iteration_seconds,
                            operator_seconds=operator_seconds,
                            diagnostic_seconds=time.perf_counter()-diagnostic_start,
                            recursive_relative_residual=float((rr/rhs_rr.clamp_min(1.e-30)).sqrt()),
-                           recomputed_relative_residual=float((true_rr/rhs_rr.clamp_min(1.e-30)).sqrt()),
+                           recomputed_relative_residual=float((true_rr/rhs_rr.clamp_min(1.e-30)).sqrt()) if true_rr is not None else None,
                            alpha=float(alpha), beta=float(ratio), pAp=float(pap), denominator_ok=bool(good), residual_refreshed=refreshed)
                 solve_record['iterations'].append(row)
                 print(json.dumps(dict(event='solver_iteration', solve=solve_record['index'], **row)), flush=True)
@@ -299,9 +304,15 @@ class HMC:
 
     @timed
     def energy(self, phi, mom, iterations):
-        self.solve_label = 'hamiltonian'
-        x = self.solve(phi, iterations)
-        gauge, kinetic, fermion = self.gauge_action(), self.kinetic(mom), self.dot(phi, x)
+        self.solve_label = getattr(self, 'energy_stage', 'hamiltonian')
+        self.residual_refresh_interval = getattr(self, 'solver_refresh_intervals', {}).get(self.solve_label, getattr(self, 'residual_refresh_interval', 0))
+        solver = getattr(self, 'solver_layer', self.solve)
+        x = solver(phi, iterations)
+        self.energy_reduction_dtype = torch.float64 if getattr(self, 'stable_energy', False) else torch.float32
+        try:
+            gauge, kinetic, fermion = self.gauge_action(), self.kinetic(mom), self.dot(phi, x)
+        finally:
+            self.energy_reduction_dtype = torch.float32
         total = gauge+kinetic+fermion
         if self.diagnostics:
             self.energy_components = dict(gauge=float(gauge), kinetic=float(kinetic), fermion=float(fermion), total=float(total))
@@ -342,7 +353,9 @@ class HMC:
     @timed
     def kick(self, mom, phi, dt, iterations):
         self.solve_label = 'force'
-        x = self.solve(phi, iterations)
+        self.residual_refresh_interval = getattr(self, 'solver_refresh_intervals', {}).get('force', getattr(self, 'residual_refresh_interval', 0))
+        solver = getattr(self, 'solver_layer', self.solve)
+        x = solver(phi, iterations)
         z = self.dslash(x, 1)
         y = self.dslash(z, 0, skip=x)  # M x
         w = self.dslash(y, 1, dagger=True)
@@ -366,14 +379,23 @@ class HMC:
         self.refresh()
 
     @timed
-    def trajectory(self, steps, dt, iterations, energy_iterations):
+    def trajectory(self, steps, dt, iterations, energy_iterations, *, initial_energy_iterations=None, final_energy_iterations=None, diagnostic_energy_iterations=None, layers=None):
         backup = self.gauge.clone()
-        mom = self.momentum()
-        eta = self.random_vector()
-        phi = self.schur(eta, dagger=True)
-        del eta
+        mom = layers.momentum_refresh() if layers else self.momentum()
+        if layers:
+            phi = layers.pseudofermion_refresh()
+        else:
+            eta = self.random_vector()
+            phi = self.schur(eta, dagger=True)
+            del eta
+        energy = layers.hamiltonian if layers else self.energy
         transitions = []
-        h0 = self.energy(phi, mom, energy_iterations)
+        initial_energy_iterations = initial_energy_iterations or energy_iterations
+        final_energy_iterations = final_energy_iterations or energy_iterations
+        diagnostic_energy_iterations = diagnostic_energy_iterations or energy_iterations
+        trace_energy = self.diagnostics and getattr(self, 'hamiltonian_each_stage', True)
+        self.energy_stage = 'initial_energy'
+        h0 = energy(phi, mom, initial_energy_iterations)
         previous = dict(self.energy_components) if self.diagnostics else None
         last_h = h0
 
@@ -383,11 +405,13 @@ class HMC:
                 torch.cuda.synchronize()
                 start = time.perf_counter()
             operation()
-            if self.diagnostics:
+            if trace_energy:
                 torch.cuda.synchronize()
                 operation_seconds = time.perf_counter()-start
                 start = time.perf_counter()
-                last_h = self.energy(phi, mom, energy_iterations)
+                self.energy_stage = 'final_energy' if label == 'final_half_kick' else 'diagnostic_energy'
+                budget = final_energy_iterations if label == 'final_half_kick' else diagnostic_energy_iterations
+                last_h = energy(phi, mom, budget)
                 torch.cuda.synchronize()
                 after = dict(self.energy_components)
                 row = dict(stage=label, before=previous, after=after,
@@ -398,13 +422,20 @@ class HMC:
                 print(json.dumps(dict(event='hamiltonian_transition', **row)), flush=True)
                 previous = after
 
-        for i in range(steps):
-            advance(f'kick_{i+1}', lambda: self.kick(mom, phi, dt*(.5 if i == 0 else 1.), iterations))
-            advance(f'drift_{i+1}', lambda: self.drift(mom, dt))
-        advance('final_half_kick', lambda: self.kick(mom, phi, dt*.5, iterations))
-        h1 = last_h if self.diagnostics else self.energy(phi, mom, energy_iterations)
-        delta = float(h1-h0)
-        accepted = math.isfinite(delta) and math.log(max(float(torch.rand((), device='cuda')), 1.e-30)) < -delta
+        if layers:
+            layers.integrator(mom,phi,steps,dt,iterations,advance)
+        else:
+            for i in range(steps):
+                advance(f'kick_{i+1}', lambda: self.kick(mom, phi, dt*(.5 if i == 0 else 1.), iterations))
+                advance(f'drift_{i+1}', lambda: self.drift(mom, dt))
+            advance('final_half_kick', lambda: self.kick(mom, phi, dt*.5, iterations))
+        self.energy_stage = 'final_energy'
+        h1 = last_h if trace_energy else energy(phi, mom, final_energy_iterations)
+        if layers:
+            delta, accepted = layers.acceptance(h0,h1)
+        else:
+            delta = float(h1-h0)
+            accepted = math.isfinite(delta) and math.log(max(float(torch.rand((), device='cuda')), 1.e-30)) < -delta
         if not accepted:
             self.gauge = backup
             self.refresh()
@@ -421,6 +452,10 @@ class HMC:
 
 
 def main():
+    import sys
+    if any(arg == '--config' or arg.startswith('--config=') for arg in sys.argv[1:]):
+        from run_hmc_config import main as configured_main
+        return configured_main()
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--dims', type=int, nargs=4, default=[4, 4, 4, 4])
     p.add_argument('--precision', choices=PRECISIONS, default='fp4')

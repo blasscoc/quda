@@ -74,3 +74,7 @@ FP4 roundoff research demo: FP4_ROUNDOFF_RESEARCH.txt develops the formalism
 and cites AI literature; FP4_ROUNDOFF_RESULTS.txt and FP4_ROUNDOFF_SOLVERS.csv
 contain measured 32^4 ablations and the 128^4 memory model. Run
 run_fp4_roundoff.sh for individual cases; production defaults remain unchanged.
+
+Versioned experiment configs, stage-specific hyperparameters, PyTorch module
+wrappers and optional TensorBoard: see CONFIG_AND_LAYERS.txt. Both entry points
+accept --config; configs/fp4-research and configs/smoke are provided.

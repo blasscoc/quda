@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "physics": {
+    "lattice": [
+      32,
+      32,
+      32,
+      32
+    ],
+    "beta": 5.6,
+    "kappa": 0.156,
+    "temporal_boundary": 1
+  },
+  "integrator": {
+    "method": "leapfrog",
+    "steps": 10,
+    "step_size": 0.001
+  },
+  "solvers": {
+    "force": {
+      "iterations": 12,
+      "residual_refresh_every": 4
+    },
+    "initial_energy": {
+      "iterations": 24,
+      "residual_refresh_every": 0
+    },
+    "final_energy": {
+      "iterations": 24,
+      "residual_refresh_every": 0
+    },
+    "diagnostic_energy": {
+      "iterations": 12,
+      "residual_refresh_every": 0
+    }
+  },
+  "precision": {
+    "format": "fp4",
+    "solver_components": 2,
+    "gauge_representation": "identity_plus_correction",
+    "momentum_components": 2,
+    "energy_reduction": "fp64",
+    "solver_gain": 1.0
+  },
+  "diagnostics": {
+    "enabled": true,
+    "residual_every": 1,
+    "hamiltonian_each_stage": true
+  },
+  "execution": {
+    "tile_sites": 8192,
+    "trajectories": 1
+  },
+  "seed": 45
+}

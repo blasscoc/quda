@@ -1,0 +1,100 @@
+Configured HMC experiments and PyTorch stage modules
+===================================================
+
+Run either entry point with --config:
+  ./run_compact_hmc.sh --config /work/configs/fp4-research \
+    --set integrator.steps=10 --set logging.tensorboard=true \
+    --run-dir /work/runs/example
+  ./run_fp4_roundoff.sh --config /work/configs/fp4-research \
+    --set 'physics.lattice=[4,4,4,4]' --set integrator.steps=1 \
+    --run-dir /work/runs/tiny
+
+Configs are JSON files (or directories containing config.json). Partial files
+inherit versioned defaults; unknown keys and unsupported combinations fail.
+--set dotted.path=JSON overrides a value, followed by full validation.
+  python3 run_hmc_config.py --config configs/fp4-research --validate-only
+No GPU or PyTorch import is required for validation alone.
+
+HMCConfig.from_pretrained(path) / save_pretrained(directory) follow the familiar
+configuration pattern without requiring Transformers. This is a local typed
+configuration object, not a Hugging Face model or Hub upload implementation.
+
+Hyperparameters:
+  integrator.steps: number of leapfrog steps per trajectory.
+  integrator.step_size: dt; trajectory length is steps*dt.
+  solvers.force: iterations and residual_refresh_every for each force solve.
+  solvers.initial_energy / final_energy: separate endpoint solve budgets.
+  solvers.diagnostic_energy: budget for extra intermediate H measurements.
+  precision: field format, solver/momentum components, gauge representation,
+             energy-reduction dtype, and global solver gain.
+  diagnostics.residual_every: extra residual every N iterations and on the last
+             iteration; 0 disables recomputation, but iteration times remain.
+  diagnostics.hamiltonian_each_stage: enable extra H measurements after stages.
+  execution.trajectories: number of additional trajectories to execute.
+  logging.tensorboard: use torch.utils.tensorboard.SummaryWriter.
+
+CG is currently the only solver algorithm. SGD/Adam/Muon adapters are not implied
+by the module abstraction. Physics parameters (beta, kappa, lattice, boundary)
+are stored separately from numerical hyperparameters.
+
+Example: 10 integration steps require 10 gauge drifts and 11 force evaluations
+(half-kicks at the ends and combined full kicks inside). With stage-energy
+checks disabled there are also two endpoint energy solves and one Metropolis
+proposal decision. With checks enabled there are 2*steps-1 additional energy
+solves. Different energy budgets mean different approximation errors; compare
+DeltaH at consistent budgets when interpreting numerical changes.
+
+Execution graph, using real nn.Module forward calls and hooks:
+  HMCTrajectory
+    MomentumRefresh
+    PseudofermionRefresh
+    FermionSolve
+      FermionOperator
+    LeapfrogIntegrator
+      ForceKick
+      GaugeDrift
+    Hamiltonian
+    Metropolis
+
+Layers call the existing physics implementation. Solver and operator are shared
+by the energy and force paths. They are stateful modules, not learned layers.
+Packed buffers belong to the backend; module.state_dict() is NOT the simulation
+checkpoint. No end-to-end autograd or whole-trajectory torch.compile support is
+claimed. The existing smooth force surrogate still uses autograd, and native
+FP4 products still run through Triton. This is an interface organization change,
+not a new arithmetic implementation or a memory-expanding master representation.
+
+Every run writes:
+  config.json       fully resolved settings
+  provenance.json   code revision, dirty flag, Python-source hashes, Torch version,
+                    module architecture and resume origin
+  results.jsonl     config, timings, solve histories, H transitions, memory, accept
+  checkpoint.pt     atomic packed gauge + CPU/CUDA RNG + config + completed count
+  tensorboard/      optional event files, flushed after each trajectory
+
+Resume:
+  ./run_compact_hmc.sh --config /work/runs/example/config.json \
+    --resume /work/runs/example/checkpoint.pt --run-dir /work/runs/example
+Physics/numerical/diagnostic settings must match. Additional trajectory count
+and logging can change; the RNG is restored from checkpoint, not reseeded.
+Configured checkpoints have format configured-hmc-v1; legacy checkpoints retain
+legacy loaders. Existing CLI behavior without --config is preserved.
+
+TensorBoard (installed in the pinned container used by these runners):
+  docker run --rm -p 127.0.0.1:6006:6006 -v "$PWD/runs:/runs:ro" \
+    --entrypoint tensorboard \
+    nvcr.io/nvidia/pytorch@sha256:6e8ccc607fc2a51e3741667b86316a0889418ba8b78ed0ba96e8d282b648a7a6 \
+    --logdir /runs --host 0.0.0.0 --port 6006
+Open http://127.0.0.1:6006. Tags include per-stage solver residuals/iteration times,
+H components before/after stages, DeltaH, acceptance and memory. Events are
+verified with TensorBoard's EventAccumulator; the viewer is not auto-started.
+
+Validation:
+  ./run_hmc_config_tests.sh  (expects the recorded runs/config-smoke test output)
+10-step 4^4 test: 10 drifts, 11 force solves, 13 total solves, 29 total solver
+iterations (2 each force, 3 initial energy, 4 final energy), one proposal.
+Independent stage budgets, residual cadence, real module hooks, schema failures
+and exact wrapped/unwrapped outcomes tested. Resume matched uninterrupted two-
+trajectory execution, including packed gauge bits. TensorBoard scalar tags
+verified. Research config and all five legacy precision regression tests passed.
+Evidence: CONFIG_VALIDATION.json and benchmark-results/config-*.log.

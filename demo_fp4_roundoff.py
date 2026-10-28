@@ -84,6 +84,11 @@ def trajectory_case(dims,mode,tile,stable_energy=False,seed=45,padded_momentum=F
         peak_allocated_bytes=torch.cuda.max_memory_allocated(),motion=motion,result=r,timings=h.timings,solves=h.solves)
 
 if __name__=='__main__':
+    import sys
+    if any(arg == '--config' or arg.startswith('--config=') for arg in sys.argv[1:]):
+        from run_hmc_config import main
+        main()
+        raise SystemExit(0)
     p=argparse.ArgumentParser();p.add_argument('--size',type=int,default=32);p.add_argument('--iters',type=int,default=12)
     p.add_argument('--tile',type=int,default=8192);p.add_argument('--mode',default='baseline',choices=['baseline','sr','dual','center','center_dual','center_dual_mom'])
     p.add_argument('--seed',type=int,default=45)

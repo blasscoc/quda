@@ -8,3 +8,5 @@ dot-scaled-source.txt
 quda-cache/
 torch-compile-cache/
 triton-cache/
+
+runs/

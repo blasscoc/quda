@@ -105,20 +105,6 @@ class ResearchHMC(HMC):
                     p.put((mu,parity,sl),a.reshape(-1,2,6))
         return p
 
-    @timed
-    def energy(self,phi,mom,iterations):
-        if not getattr(self,'stable_energy',False):return super().energy(phi,mom,iterations)
-        self.solve_label='hamiltonian'
-        x=self.solve(phi,iterations)
-        self.energy_reduction_dtype=torch.float64
-        try:
-            g,k,f=self.gauge_action(),self.kinetic(mom),self.dot(phi,x)
-        finally:
-            self.energy_reduction_dtype=torch.float32
-        total=g+k+f
-        self.energy_components=dict(gauge=float(g),kinetic=float(k),fermion=float(f),total=float(total))
-        return total
-
     def checkpoint(self,path,config,completed):
         # Solver workspaces are transient; retain representation metadata and RNG.
         torch.save(dict(format='research-fp4-v1',mode=self.mode,gain=self.gain,dims=self.dims,
