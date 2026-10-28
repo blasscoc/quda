@@ -1,0 +1,98 @@
+[
+  {
+    "precision": "fp16",
+    "boundary": 1,
+    "batch": 1,
+    "reference_error": 5.7976640164270066e-06,
+    "fp64_error": 0.0003819222604791136,
+    "compiled_exact": true
+  },
+  {
+    "precision": "fp16",
+    "boundary": 1,
+    "batch": 4,
+    "reference_error": 1.593301749380771e-05,
+    "fp64_error": 0.00038445247263587876,
+    "compiled_exact": true
+  },
+  {
+    "precision": "fp16",
+    "boundary": -1,
+    "batch": 1,
+    "reference_error": 2.021410864472273e-06,
+    "fp64_error": 0.00038552620929734033,
+    "compiled_exact": true
+  },
+  {
+    "precision": "fp16",
+    "boundary": -1,
+    "batch": 4,
+    "reference_error": 3.365119482623413e-05,
+    "fp64_error": 0.00038154212887338344,
+    "compiled_exact": true
+  },
+  {
+    "precision": "bf16",
+    "boundary": 1,
+    "batch": 1,
+    "reference_error": 0.0,
+    "fp64_error": 0.0030213100659902247,
+    "compiled_exact": true
+  },
+  {
+    "precision": "bf16",
+    "boundary": 1,
+    "batch": 4,
+    "reference_error": 1.2487485037127044e-05,
+    "fp64_error": 0.0030434543421500463,
+    "compiled_exact": true
+  },
+  {
+    "precision": "bf16",
+    "boundary": -1,
+    "batch": 1,
+    "reference_error": 0.0,
+    "fp64_error": 0.003042812840185251,
+    "compiled_exact": true
+  },
+  {
+    "precision": "bf16",
+    "boundary": -1,
+    "batch": 4,
+    "reference_error": 4.79769914818462e-05,
+    "fp64_error": 0.0030382653631192275,
+    "compiled_exact": true
+  },
+  {
+    "precision": "fp8",
+    "boundary": 1,
+    "batch": 1,
+    "reference_error": 0.0,
+    "fp64_error": 0.04907892096093535,
+    "compiled_exact": true
+  },
+  {
+    "precision": "fp8",
+    "boundary": 1,
+    "batch": 4,
+    "reference_error": 0.0,
+    "fp64_error": 0.049086677880934064,
+    "compiled_exact": true
+  },
+  {
+    "precision": "fp8",
+    "boundary": -1,
+    "batch": 1,
+    "reference_error": 0.0,
+    "fp64_error": 0.04963868495113399,
+    "compiled_exact": true
+  },
+  {
+    "precision": "fp8",
+    "boundary": -1,
+    "batch": 4,
+    "reference_error": 0.0,
+    "fp64_error": 0.048579389020346114,
+    "compiled_exact": true
+  }
+]
