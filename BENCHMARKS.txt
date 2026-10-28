@@ -1,6 +1,20 @@
 Native FP4 Wilson forward experiments — 2026-10-27
 ================================================
 
+Benchmark reference correction (2026-10-28):
+The performance baseline is the existing QUDA conjugate-gradient (CG) solve,
+not the original Torch FP64 forward pass. The numbers below are operator
+microbenchmarks only. None establishes a speedup over CG.
+Solver comparisons must use identical gauge, RHS, boundary conditions, kappa,
+initial guess, and target independently recomputed relative residual
+||b-Ax||/||b||. Report total time to that residual, iterations/operator calls,
+setup costs, and memory. For batching, compare equal numbers of solved RHS.
+FP64 remains the numerical operator oracle, distinct from the CG performance
+baseline. FP4 forward error alone is not a solver convergence criterion.
+The existing replay bridge exposes quda_replay_solve_cg_d2d; its replay experiment
+uses tolerance 1e-8 and maxiter 5000. A matched FP4 solver comparison is pending;
+the new fused kernels currently implement forward applications only.
+
 Scope: complete A*x = M_even^dagger M_even*x with fixed gauge. These are Torch
 network forward timings, NOT QUDA/HMC trajectory timings. The 56^3x96 checkpoint
 is tiled and unthermalized. Kappa .156, periodic fermions. Reference is the
