@@ -14,7 +14,8 @@
         "h_initial": 5600.9931640625,
         "h_final": 5600.931640625,
         "delta_h": -0.0615234375,
-        "accepted": true
+        "accepted": true,
+        "hamiltonian_transitions": []
       }
     },
     {
@@ -27,7 +28,8 @@
         "h_initial": 5601.13818359375,
         "h_final": 5601.1220703125,
         "delta_h": -0.01611328125,
-        "accepted": true
+        "accepted": true,
+        "hamiltonian_transitions": []
       }
     },
     {
@@ -40,7 +42,8 @@
         "h_initial": 5601.1318359375,
         "h_final": 5601.0849609375,
         "delta_h": -0.046875,
-        "accepted": true
+        "accepted": true,
+        "hamiltonian_transitions": []
       }
     },
     {
@@ -53,7 +56,8 @@
         "h_initial": 5591.1787109375,
         "h_final": 5589.759765625,
         "delta_h": -1.4189453125,
-        "accepted": true
+        "accepted": true,
+        "hamiltonian_transitions": []
       }
     },
     {
@@ -66,7 +70,8 @@
         "h_initial": 5471.19921875,
         "h_final": 5474.4501953125,
         "delta_h": 3.2509765625,
-        "accepted": false
+        "accepted": false,
+        "hamiltonian_transitions": []
       }
     }
   ]

@@ -189,10 +189,11 @@ class HMC:
 
     @timed
     def dot(self, x, y):
-        total = torch.zeros((), device='cuda')
+        dtype = getattr(self, 'energy_reduction_dtype', torch.float32)
+        total = torch.zeros((), device='cuda', dtype=dtype)
         for sl, _ in self.tiles():
             ix = (slice(None), sl)
-            total += (x.get(ix)*y.get(ix)).sum()
+            total += (x.get(ix)*y.get(ix)).sum(dtype=dtype)
         return total
 
     @timed
@@ -230,8 +231,14 @@ class HMC:
             alpha = torch.where(good, rr/pap.clamp_min(1.e-30), 0.)
             self.axpy(x, 1., x, alpha, p)
             self.axpy(r, 1., r, -alpha, ap)
+            interval = getattr(self, 'residual_refresh_interval', 0)
+            refreshed = bool(interval and (iteration+1) % interval == 0)
+            if refreshed:
+                del ap
+                ap = self.apply(x)
+                self.axpy(r, 1., rhs, -1., ap)
             new = self.dot(r, r)
-            ratio = torch.where(rr > 1.e-30, new/rr.clamp_min(1.e-30), 0.)
+            ratio = torch.zeros_like(rr) if refreshed else torch.where(rr > 1.e-30, new/rr.clamp_min(1.e-30), 0.)
             self.axpy(p, 1., r, ratio, p)
             rr = new
             del ap
@@ -249,7 +256,7 @@ class HMC:
                            diagnostic_seconds=time.perf_counter()-diagnostic_start,
                            recursive_relative_residual=float((rr/rhs_rr.clamp_min(1.e-30)).sqrt()),
                            recomputed_relative_residual=float((true_rr/rhs_rr.clamp_min(1.e-30)).sqrt()),
-                           alpha=float(alpha), beta=float(ratio), pAp=float(pap), denominator_ok=bool(good))
+                           alpha=float(alpha), beta=float(ratio), pAp=float(pap), denominator_ok=bool(good), residual_refreshed=refreshed)
                 solve_record['iterations'].append(row)
                 print(json.dumps(dict(event='solver_iteration', solve=solve_record['index'], **row)), flush=True)
         return x
@@ -268,16 +275,18 @@ class HMC:
 
     @timed
     def kinetic(self, mom):
-        out = torch.zeros((), device='cuda')
+        dtype = getattr(self, 'energy_reduction_dtype', torch.float32)
+        out = torch.zeros((), device='cuda', dtype=dtype)
         for sl, _ in self.tiles():
             for mu in range(4):
                 for p in (0, 1):
-                    out += .5*mom.get((mu, p, sl)).flatten(1)[:, :8].square().sum()
+                    out += .5*mom.get((mu, p, sl)).flatten(1)[:, :8].square().sum(dtype=dtype)
         return out
 
     @timed
     def gauge_action(self):
-        out = torch.zeros((), device='cuda')
+        dtype = getattr(self, 'energy_reduction_dtype', torch.float32)
+        out = torch.zeros((), device='cuda', dtype=dtype)
         for sl, ids in self.tiles():
             for p in (0, 1):
                 for mu in range(4):
@@ -285,7 +294,7 @@ class HMC:
                     for nu in range(mu+1, 4):
                         jn, _ = self.shift(p, ids, nu, 1)
                         loop = self.u(mu, p, ids)@self.u(nu, 1-p, jm)@self.u(mu, 1-p, jn).mH@self.u(nu, p, ids).mH
-                        out += self.beta*(3.-loop.diagonal(dim1=-2, dim2=-1).real.sum(-1)).sum()/3
+                        out += self.beta*(3.-loop.diagonal(dim1=-2, dim2=-1).real.sum(-1)).sum(dtype=dtype)/3
         return out
 
     @timed

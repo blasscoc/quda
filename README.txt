@@ -69,3 +69,8 @@ is implemented here. Raw checkpoint metadata must match this operator.
 Conventions checked against local QUDA include/gamma.cuh (UKQCD basis),
 include/gauge_field_order.h (QDP order), lib/dirac_wilson.cpp (Schur complement)
 and the existing replay bridge. The implementation is a separate PyTorch model.
+
+FP4 roundoff research demo: FP4_ROUNDOFF_RESEARCH.txt develops the formalism
+and cites AI literature; FP4_ROUNDOFF_RESULTS.txt and FP4_ROUNDOFF_SOLVERS.csv
+contain measured 32^4 ablations and the 128^4 memory model. Run
+run_fp4_roundoff.sh for individual cases; production defaults remain unchanged.

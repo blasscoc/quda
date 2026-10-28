@@ -1,0 +1,510 @@
+{
+  "kind": "trajectory",
+  "dims": [
+    32,
+    32,
+    32,
+    32
+  ],
+  "mode": "baseline",
+  "wall_seconds": 8.526942177006276,
+  "peak_allocated_bytes": 411866112,
+  "motion": [
+    {
+      "changed_links": 0,
+      "total_links": 4194304,
+      "rms_link_change": 0.0,
+      "rms_unitarity_error": 0.0
+    }
+  ],
+  "result": {
+    "h_initial": 22568356.0,
+    "h_final": 22579692.0,
+    "delta_h": 11336.0,
+    "accepted": false,
+    "hamiltonian_transitions": [
+      {
+        "stage": "kick_1",
+        "before": {
+          "gauge": 0.0,
+          "kinetic": 16611800.0,
+          "fermion": 5956557.0,
+          "total": 22568356.0
+        },
+        "after": {
+          "gauge": 0.0,
+          "kinetic": 16623135.0,
+          "fermion": 5956557.0,
+          "total": 22579692.0
+        },
+        "delta_h": 11336.0,
+        "operation_seconds": 2.411152233995381,
+        "hamiltonian_diagnostic_seconds": 0.5523313070007134
+      },
+      {
+        "stage": "drift_1",
+        "before": {
+          "gauge": 0.0,
+          "kinetic": 16623135.0,
+          "fermion": 5956557.0,
+          "total": 22579692.0
+        },
+        "after": {
+          "gauge": 0.0,
+          "kinetic": 16623135.0,
+          "fermion": 5956557.0,
+          "total": 22579692.0
+        },
+        "delta_h": 0.0,
+        "operation_seconds": 1.3592651020007906,
+        "hamiltonian_diagnostic_seconds": 0.5276228860020638
+      },
+      {
+        "stage": "final_half_kick",
+        "before": {
+          "gauge": 0.0,
+          "kinetic": 16623135.0,
+          "fermion": 5956557.0,
+          "total": 22579692.0
+        },
+        "after": {
+          "gauge": 0.0,
+          "kinetic": 16623135.0,
+          "fermion": 5956557.0,
+          "total": 22579692.0
+        },
+        "delta_h": 0.0,
+        "operation_seconds": 2.318679201998748,
+        "hamiltonian_diagnostic_seconds": 0.5486485690053087
+      }
+    ]
+  },
+  "timings": {
+    "momentum": {
+      "calls": 2,
+      "inclusive_seconds": 0.07392055900709238,
+      "exclusive_seconds": 0.0369714240077883
+    },
+    "random_vector": {
+      "calls": 1,
+      "inclusive_seconds": 0.0047152699989965186,
+      "exclusive_seconds": 0.0047152699989965186
+    },
+    "schur": {
+      "calls": 97,
+      "inclusive_seconds": 0.610303069013753,
+      "exclusive_seconds": 0.610303069013753
+    },
+    "dot": {
+      "calls": 82,
+      "inclusive_seconds": 0.24690342797839548,
+      "exclusive_seconds": 0.24690342797839548
+    },
+    "apply": {
+      "calls": 48,
+      "inclusive_seconds": 0.6002393879898591,
+      "exclusive_seconds": 0.000507360979099758
+    },
+    "axpy": {
+      "calls": 96,
+      "inclusive_seconds": 0.5782160490198294,
+      "exclusive_seconds": 0.5782160490198294
+    },
+    "solve": {
+      "calls": 6,
+      "inclusive_seconds": 1.441312322000158,
+      "exclusive_seconds": 0.02730864699697122
+    },
+    "gauge_action": {
+      "calls": 4,
+      "inclusive_seconds": 1.1790808869991452,
+      "exclusive_seconds": 1.1790808869991452
+    },
+    "kinetic": {
+      "calls": 4,
+      "inclusive_seconds": 0.09360578798805363,
+      "exclusive_seconds": 0.09360578798805363
+    },
+    "energy": {
+      "calls": 4,
+      "inclusive_seconds": 2.2643047049932647,
+      "exclusive_seconds": 0.00028961701900698245
+    },
+    "kick": {
+      "calls": 2,
+      "inclusive_seconds": 4.729804939997848,
+      "exclusive_seconds": 4.268465840999852
+    },
+    "refresh": {
+      "calls": 4,
+      "inclusive_seconds": 0.47248750399739947,
+      "exclusive_seconds": 0.2362555839936249
+    },
+    "drift": {
+      "calls": 1,
+      "inclusive_seconds": 1.275165407001623,
+      "exclusive_seconds": 1.156392204007716
+    },
+    "trajectory": {
+      "calls": 1,
+      "inclusive_seconds": 8.52692571299849,
+      "exclusive_seconds": 0.08791054399625864
+    }
+  },
+  "solves": [
+    {
+      "index": 1,
+      "rhs_norm": 2728.74658203125,
+      "iterations": [
+        {
+          "iteration": 1,
+          "seconds": 0.04265732200292405,
+          "operator_seconds": 0.018041205999907106,
+          "diagnostic_seconds": 0.02023190399631858,
+          "recursive_relative_residual": 0.2633860111236572,
+          "recomputed_relative_residual": 0.2722146511077881,
+          "alpha": 0.8031646609306335,
+          "beta": 0.06937219202518463,
+          "pAp": 9270899.0,
+          "denominator_ok": true,
+          "residual_refreshed": false
+        },
+        {
+          "iteration": 2,
+          "seconds": 0.03489722099038772,
+          "operator_seconds": 0.011800583990407176,
+          "diagnostic_seconds": 0.02848991099745035,
+          "recursive_relative_residual": 0.10383116453886032,
+          "recomputed_relative_residual": 0.26663997769355774,
+          "alpha": 0.9145835638046265,
+          "beta": 0.15540680289268494,
+          "pAp": 564791.9375,
+          "denominator_ok": true,
+          "residual_refreshed": false
+        },
+        {
+          "iteration": 3,
+          "seconds": 0.0371658720105188,
+          "operator_seconds": 0.01169595900864806,
+          "diagnostic_seconds": 0.020136399994953535,
+          "recursive_relative_residual": 0.0483262836933136,
+          "recomputed_relative_residual": 0.27324429154396057,
+          "alpha": 0.9793365001678467,
+          "beta": 0.2166263908147812,
+          "pAp": 81969.0546875,
+          "denominator_ok": true,
+          "residual_refreshed": false
+        },
+        {
+          "iteration": 4,
+          "seconds": 0.038094964998890646,
+          "operator_seconds": 0.01169960800325498,
+          "diagnostic_seconds": 0.020345152006484568,
+          "recursive_relative_residual": 0.024744410067796707,
+          "recomputed_relative_residual": 0.2732193171977997,
+          "alpha": 0.969654381275177,
+          "beta": 0.2621726393699646,
+          "pAp": 17933.962890625,
+          "denominator_ok": true,
+          "residual_refreshed": false
+        }
+      ],
+      "label": "hamiltonian"
+    },
+    {
+      "index": 2,
+      "rhs_norm": 2728.74658203125,
+      "iterations": [
+        {
+          "iteration": 1,
+          "seconds": 0.03551690498716198,
+          "operator_seconds": 0.01259743599803187,
+          "diagnostic_seconds": 0.02001779098645784,
+          "recursive_relative_residual": 0.2633860111236572,
+          "recomputed_relative_residual": 0.2722146511077881,
+          "alpha": 0.8031646609306335,
+          "beta": 0.06937219202518463,
+          "pAp": 9270899.0,
+          "denominator_ok": true,
+          "residual_refreshed": false
+        },
+        {
+          "iteration": 2,
+          "seconds": 0.034858614002587274,
+          "operator_seconds": 0.01181280800665263,
+          "diagnostic_seconds": 0.027408562003984116,
+          "recursive_relative_residual": 0.10383116453886032,
+          "recomputed_relative_residual": 0.26663997769355774,
+          "alpha": 0.9145835638046265,
+          "beta": 0.15540680289268494,
+          "pAp": 564791.9375,
+          "denominator_ok": true,
+          "residual_refreshed": false
+        },
+        {
+          "iteration": 3,
+          "seconds": 0.03412710600241553,
+          "operator_seconds": 0.011691974999848753,
+          "diagnostic_seconds": 0.02185895100410562,
+          "recursive_relative_residual": 0.0483262836933136,
+          "recomputed_relative_residual": 0.27324429154396057,
+          "alpha": 0.9793365001678467,
+          "beta": 0.2166263908147812,
+          "pAp": 81969.0546875,
+          "denominator_ok": true,
+          "residual_refreshed": false
+        },
+        {
+          "iteration": 4,
+          "seconds": 0.03572226600954309,
+          "operator_seconds": 0.012866845005191863,
+          "diagnostic_seconds": 0.020718050000141375,
+          "recursive_relative_residual": 0.024744410067796707,
+          "recomputed_relative_residual": 0.2732193171977997,
+          "alpha": 0.969654381275177,
+          "beta": 0.2621726393699646,
+          "pAp": 17933.962890625,
+          "denominator_ok": true,
+          "residual_refreshed": false
+        }
+      ],
+      "label": "force"
+    },
+    {
+      "index": 3,
+      "rhs_norm": 2728.74658203125,
+      "iterations": [
+        {
+          "iteration": 1,
+          "seconds": 0.03847741399658844,
+          "operator_seconds": 0.011771256002248265,
+          "diagnostic_seconds": 0.02033273699635174,
+          "recursive_relative_residual": 0.2633860111236572,
+          "recomputed_relative_residual": 0.2722146511077881,
+          "alpha": 0.8031646609306335,
+          "beta": 0.06937219202518463,
+          "pAp": 9270899.0,
+          "denominator_ok": true,
+          "residual_refreshed": false
+        },
+        {
+          "iteration": 2,
+          "seconds": 0.04153834099997766,
+          "operator_seconds": 0.012406698995619081,
+          "diagnostic_seconds": 0.021478485999978147,
+          "recursive_relative_residual": 0.10383116453886032,
+          "recomputed_relative_residual": 0.26663997769355774,
+          "alpha": 0.9145835638046265,
+          "beta": 0.15540680289268494,
+          "pAp": 564791.9375,
+          "denominator_ok": true,
+          "residual_refreshed": false
+        },
+        {
+          "iteration": 3,
+          "seconds": 0.03620450699236244,
+          "operator_seconds": 0.013177022003219463,
+          "diagnostic_seconds": 0.021333876997232437,
+          "recursive_relative_residual": 0.0483262836933136,
+          "recomputed_relative_residual": 0.27324429154396057,
+          "alpha": 0.9793365001678467,
+          "beta": 0.2166263908147812,
+          "pAp": 81969.0546875,
+          "denominator_ok": true,
+          "residual_refreshed": false
+        },
+        {
+          "iteration": 4,
+          "seconds": 0.03988010900502559,
+          "operator_seconds": 0.015853275006520562,
+          "diagnostic_seconds": 0.024645220997626893,
+          "recursive_relative_residual": 0.024744410067796707,
+          "recomputed_relative_residual": 0.2732193171977997,
+          "alpha": 0.969654381275177,
+          "beta": 0.2621726393699646,
+          "pAp": 17933.962890625,
+          "denominator_ok": true,
+          "residual_refreshed": false
+        }
+      ],
+      "label": "hamiltonian"
+    },
+    {
+      "index": 4,
+      "rhs_norm": 2728.74658203125,
+      "iterations": [
+        {
+          "iteration": 1,
+          "seconds": 0.03547309699933976,
+          "operator_seconds": 0.012235098009114154,
+          "diagnostic_seconds": 0.020622880998416804,
+          "recursive_relative_residual": 0.2633860111236572,
+          "recomputed_relative_residual": 0.2722146511077881,
+          "alpha": 0.8031646609306335,
+          "beta": 0.06937219202518463,
+          "pAp": 9270899.0,
+          "denominator_ok": true,
+          "residual_refreshed": false
+        },
+        {
+          "iteration": 2,
+          "seconds": 0.03473632500390522,
+          "operator_seconds": 0.011698646994773299,
+          "diagnostic_seconds": 0.020795490010641515,
+          "recursive_relative_residual": 0.10383116453886032,
+          "recomputed_relative_residual": 0.26663997769355774,
+          "alpha": 0.9145835638046265,
+          "beta": 0.15540680289268494,
+          "pAp": 564791.9375,
+          "denominator_ok": true,
+          "residual_refreshed": false
+        },
+        {
+          "iteration": 3,
+          "seconds": 0.035024934011744335,
+          "operator_seconds": 0.012038617001962848,
+          "diagnostic_seconds": 0.02108998798939865,
+          "recursive_relative_residual": 0.0483262836933136,
+          "recomputed_relative_residual": 0.27324429154396057,
+          "alpha": 0.9793365001678467,
+          "beta": 0.2166263908147812,
+          "pAp": 81969.0546875,
+          "denominator_ok": true,
+          "residual_refreshed": false
+        },
+        {
+          "iteration": 4,
+          "seconds": 0.03567751299124211,
+          "operator_seconds": 0.012521386990556493,
+          "diagnostic_seconds": 0.02011398400645703,
+          "recursive_relative_residual": 0.024744410067796707,
+          "recomputed_relative_residual": 0.2732193171977997,
+          "alpha": 0.969654381275177,
+          "beta": 0.2621726393699646,
+          "pAp": 17933.962890625,
+          "denominator_ok": true,
+          "residual_refreshed": false
+        }
+      ],
+      "label": "hamiltonian"
+    },
+    {
+      "index": 5,
+      "rhs_norm": 2728.74658203125,
+      "iterations": [
+        {
+          "iteration": 1,
+          "seconds": 0.035490423993906006,
+          "operator_seconds": 0.012524523001047783,
+          "diagnostic_seconds": 0.02090989099815488,
+          "recursive_relative_residual": 0.2633860111236572,
+          "recomputed_relative_residual": 0.2722146511077881,
+          "alpha": 0.8031646609306335,
+          "beta": 0.06937219202518463,
+          "pAp": 9270899.0,
+          "denominator_ok": true,
+          "residual_refreshed": false
+        },
+        {
+          "iteration": 2,
+          "seconds": 0.03500386199448258,
+          "operator_seconds": 0.01248338699224405,
+          "diagnostic_seconds": 0.020657474000472575,
+          "recursive_relative_residual": 0.10383116453886032,
+          "recomputed_relative_residual": 0.26663997769355774,
+          "alpha": 0.9145835638046265,
+          "beta": 0.15540680289268494,
+          "pAp": 564791.9375,
+          "denominator_ok": true,
+          "residual_refreshed": false
+        },
+        {
+          "iteration": 3,
+          "seconds": 0.035075029998552054,
+          "operator_seconds": 0.012181337995571084,
+          "diagnostic_seconds": 0.02026388800004497,
+          "recursive_relative_residual": 0.0483262836933136,
+          "recomputed_relative_residual": 0.27324429154396057,
+          "alpha": 0.9793365001678467,
+          "beta": 0.2166263908147812,
+          "pAp": 81969.0546875,
+          "denominator_ok": true,
+          "residual_refreshed": false
+        },
+        {
+          "iteration": 4,
+          "seconds": 0.03458523600420449,
+          "operator_seconds": 0.011690662999171764,
+          "diagnostic_seconds": 0.020113630991545506,
+          "recursive_relative_residual": 0.024744410067796707,
+          "recomputed_relative_residual": 0.2732193171977997,
+          "alpha": 0.969654381275177,
+          "beta": 0.2621726393699646,
+          "pAp": 17933.962890625,
+          "denominator_ok": true,
+          "residual_refreshed": false
+        }
+      ],
+      "label": "force"
+    },
+    {
+      "index": 6,
+      "rhs_norm": 2728.74658203125,
+      "iterations": [
+        {
+          "iteration": 1,
+          "seconds": 0.03469211599440314,
+          "operator_seconds": 0.011733495994121768,
+          "diagnostic_seconds": 0.02104629199311603,
+          "recursive_relative_residual": 0.2633860111236572,
+          "recomputed_relative_residual": 0.2722146511077881,
+          "alpha": 0.8031646609306335,
+          "beta": 0.06937219202518463,
+          "pAp": 9270899.0,
+          "denominator_ok": true,
+          "residual_refreshed": false
+        },
+        {
+          "iteration": 2,
+          "seconds": 0.035549608001019806,
+          "operator_seconds": 0.012465546999010257,
+          "diagnostic_seconds": 0.021227989011094905,
+          "recursive_relative_residual": 0.10383116453886032,
+          "recomputed_relative_residual": 0.26663997769355774,
+          "alpha": 0.9145835638046265,
+          "beta": 0.15540680289268494,
+          "pAp": 564791.9375,
+          "denominator_ok": true,
+          "residual_refreshed": false
+        },
+        {
+          "iteration": 3,
+          "seconds": 0.03459670799202286,
+          "operator_seconds": 0.011778807995142415,
+          "diagnostic_seconds": 0.023597567997057922,
+          "recursive_relative_residual": 0.0483262836933136,
+          "recomputed_relative_residual": 0.27324429154396057,
+          "alpha": 0.9793365001678467,
+          "beta": 0.2166263908147812,
+          "pAp": 81969.0546875,
+          "denominator_ok": true,
+          "residual_refreshed": false
+        },
+        {
+          "iteration": 4,
+          "seconds": 0.03476798799238168,
+          "operator_seconds": 0.011695975001202896,
+          "diagnostic_seconds": 0.020150080003077164,
+          "recursive_relative_residual": 0.024744410067796707,
+          "recomputed_relative_residual": 0.2732193171977997,
+          "alpha": 0.969654381275177,
+          "beta": 0.2621726393699646,
+          "pAp": 17933.962890625,
+          "denominator_ok": true,
+          "residual_refreshed": false
+        }
+      ],
+      "label": "hamiltonian"
+    }
+  ]
+}

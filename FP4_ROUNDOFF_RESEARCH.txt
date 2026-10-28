@@ -1,0 +1,187 @@
+FP4 roundoff in the compact two-flavour HMC workflow
+===================================================
+Research demo, 32^4 on DGX Spark. Target memory budget: 128^4.
+No QUDA dependency. This explores numerical methods, not validated sampling.
+
+1. Problem and mathematical model
+---------------------------------
+The even-parity system is A(U)x=phi, A=M^dagger M,
+M=I-kappa^2 D_eo D_oe. In exact arithmetic this is Hermitian positive definite
+when M is nonsingular. Our implemented map Ahat is nonlinear: its four Dslash
+stages, identity subtractions and vector updates round to FP4.
+
+Write Q(z)=z+e(z). For a computed CG iteration,
+  x_next = x + alpha*p + eta_x
+  r_next = r - alpha*(A*p + epsilon_p) + eta_r.
+The gap g=(phi-A*x)-r therefore evolves as
+  g_next = g + alpha*epsilon_p - A*eta_x - eta_r.
+A shrinking recursive residual does not establish that phi-A*x is shrinking.
+Conjugacy also degrades. This is why we measure both recursive and recomputed
+residuals and use an independent diagnostic operator.
+
+The original six-real row codec stores three E2M1 bytes and one E4M3 scale:
+  Q(z)=s*RN_E2M1(z/s),
+  s=2^ceil(log2(max(maxabs(z)/6, 2^-9))).
+The minimum positive magnitude is 2^-10 at the smallest scale. Near a value
+of one, representable FP4 spacings are orders of magnitude larger than dt=1e-3.
+Increasing volume does not fix deterministic rounding of a small update.
+
+2. Proposed treatments and their implementations
+------------------------------------------------
+A. Hierarchical scaling / normalization
+Let c approximate the inverse RMS of the RHS, using a power of two to avoid
+additional rounding. Solve A*y=c*phi and decode x=y/c. Store y and all its
+work vectors at the same scale; compare physical residuals to ||phi||.
+Our demo stores this single global gain in Expansion.gain. The small-RHS
+ablation compares gains 1 and 65536 for RHS amplitude 1e-5. This extends range;
+it does not create more FP4 mantissa bits or cure operator bias by itself.
+RMS normalization is preferable to unit-L2 normalization here: unit L2 makes
+individual entries decay as 1/sqrt(volume), approaching the codec's scale floor.
+
+B. Two-component FP4 representation (explicitly more than four effective bits)
+  hi = Q(c*z)
+  lo = Q(256*(c*z-hi))
+  z_tilde = (hi+lo/256)/c.
+A decoded tile is updated once and re-split, carrying small corrections in lo
+without a full FP32 master array. Subject to range/no-clipping assumptions,
+second quantization acts on the first rounding error, producing an O(u^2)
+error instead of O(u), plus scale-floor errors. This is an error expansion,
+not an implementation of ECO's optimizer and not an exact arithmetic guarantee.
+
+The native kernel evaluates D(hi)+D(lo)/256 with two FP4 tensor-core products,
+FP32 register accumulation and immediate splitting of the output into two FP4
+components. Every Schur stage keeps the correction, including identity-minus-
+hopping cancellation. Storage is eight bytes per six reals (~10.67 bits/real),
+versus four bytes for the original FP4 codec and twelve for FP16. Thus improved
+accuracy has a stated memory/computation cost; we do not call it free FP4.
+
+C. Identity-centered gauge factorization
+  U = I + B,  B_tilde=Q(128*B)/128.
+The field stores B rather than U. A small off-diagonal link update no longer
+shares an FP4 scale with a diagonal entry near one. Eight transport directions
+cache B or B^dagger, and the native operator explicitly evaluates
+  (I+B)x = x + Bx.
+Simply storing centered links but repacking I+B into the old cache would lose
+the improvement; our kernel and refresh path preserve the factorization.
+This representation works algebraically for general U, but its fixed gain and
+rounding have only been tested here on cold/near-identity fields. It does not
+preserve SU(3) exactly; measured unitarity defects are reported. A moving local
+reference U=U_ref exp(X), or compact Lie-algebra coordinates, is a future way to
+cover general fields without relying on near-identity scales. Not implemented.
+
+D. Momentum corrections with compact eight-coordinate blocks
+Momentum has eight Lie-algebra coordinates per link. Represent each coordinate
+with two FP4 components, using one scale per eight coefficients: 4+1 bytes per
+component, 10 bytes/link total. This avoids the original padding to twelve
+reals. Only the decoded tile has padding for interface compatibility. At 128^4
+it costs 10 GiB, versus 8 GiB for the old padded single-component layout and
+16 GiB for a naive padded two-component layout.
+
+E. Recompute/restart the residual periodically
+After every m iterations, recompute r=phi-Ahat(x) and restart p=r, retaining the
+fixed outer iteration count. This controls recurrence drift at the cost of an
+extra native application; it does not remove Ahat's bias. The ablation includes
+24 iterations both with and without refresh, so the extra iteration budget is
+not confused with the effect of refreshing. Default existing HMC behavior is
+unchanged unless residual_refresh_interval is set.
+
+F. Stochastic rounding as a bounded experiment
+For adjacent levels a<=z<=b, choose b with probability (z-a)/(b-a), else a.
+Without saturation this preserves expectation, but increases variance. Our
+experiment stochastically encodes persistent solver-state updates; native
+operator outputs remain deterministic. This is NOT full stochastic HMC or
+NVIDIA's full training recipe. Small bias and range tests accompany the code.
+It performed worse in the tested solver configuration; that is not a universal
+claim about stochastic rounding.
+
+G. Hamiltonian accumulation
+Normalized energy density h=H/V is useful for interpretation, but the correct
+Metropolis exponent remains -DeltaH=-V*Delta h. Dividing the acceptance exponent
+by volume would change the target distribution. Neither normalization nor a
+small-looking density repairs accumulated rounding bias.
+The optional --scalar64 demo accumulates gauge, kinetic and fermion energy
+reductions in FP64 scalars/register reductions; volume-sized arrays and local
+products remain reduced precision / FP32. CG arithmetic is unchanged. This
+reduces summation and final-subtraction error but cannot repair local FP32
+plaquette cancellation, inaccurate solves or quantized gauge dynamics. Paired
+local energy differences would further reduce cancellation; not implemented.
+
+3. Mapping to every workflow stage
+----------------------------------
+Save/restore: preserve packed bits and representation/gain metadata, not decoded
+masters. ResearchHMC.checkpoint/restore has a distinct research-fp4-v1 schema.
+Momentum refresh: compact two-component coordinates reduce Gaussian and update
+quantization; this is still a quantized noise distribution.
+Noise/pseudofermion refresh: two-component vectors and Schur stages reduce input
+and transform error; tests record the RHS representation error separately.
+Initial/final energy solve: scaled RHS, expanded vectors/operator, optional
+residual refresh; measure independent residual as well as recurrence residual.
+Force solves: same treatments, with fixed budgets and explicit diagnostic cost.
+Force/kicks: tilewise FP32 differentiation of the smooth surrogate; retain the
+momentum correction after each kick. Expansion does not prove force consistency.
+Gauge drift: centered state and centered native transport cache preserve small
+updates. Record changed-link count, RMS movement and unitarity defect.
+Hamiltonian evaluation: stage before/after H and components, optionally wider
+scalar reductions. Report total DeltaH and density; acceptance uses total.
+Accept/reject: retain standard exp(-DeltaH), restore exact encoded state on
+rejection. No claim of detailed balance for this approximate dynamics.
+Checkpoint: representation, dimensions, parameters and CUDA RNG persisted;
+research format deliberately distinct from the original executable's format.
+
+4. Literature grounding (primary sources, accessed 2026-10-28)
+-------------------------------------------------------------
+[1] NVIDIA et al., Pretraining Large Language Models with NVFP4,
+    arXiv:2509.25149v2 (2026-03-04 revision; first submitted 2025).
+    https://arxiv.org/abs/2509.25149v2
+    Uses block scaling, rotations, stochastic rounding and selective wider
+    precision. This supports exploring a recipe rather than assuming FP4 casts
+    alone suffice. Its LLM results do not validate our HMC sampler.
+[2] NVIDIA Transformer Engine, NVFP4 documentation (development documentation).
+    https://nvidia.github.io/TransformerEngine/features/low_precision_training/nvfp4/nvfp4.html
+    Describes global FP32 and local E4M3 scaling and selective stochastic
+    rounding. Our six-real blocks and power-of-two scales differ from NVFP4's
+    standard sixteen-value blocks. The global-gain experiment follows the same
+    range-extension principle, not a drop-in Transformer Engine kernel.
+[3] Nikdan, Zandieh, Alistarh, Mirrokni, ECO: Quantized Training without
+    Full-Precision Master Weights, arXiv:2601.22101v1 (2026-01-29).
+    https://arxiv.org/abs/2601.22101v1
+    Carries quantization error through optimizer momentum instead of storing
+    master weights. This motivates retained corrections. Our explicit second
+    component consumes extra memory, unlike ECO's stated no-extra-memory
+    optimizer transformation; its convergence proof does not apply to CG/HMC.
+[4] Panferov, Schultheis, Tabesh, Alistarh, Quartet II: Accurate LLM Pre-Training
+    in NVFP4 by Improved Unbiased Gradient Estimation,
+    arXiv:2601.22813v2 (2026-06-01).
+    https://arxiv.org/abs/2601.22813v2
+    MS-EDEN combines rotations with stochastic scale correction; it illustrates
+    the distinction between low MSE and unbiasedness. We did not implement
+    MS-EDEN or its guarantees. Rotating our six-real color blocks would require
+    transforming gauge, spin and boundary operations consistently; the exact
+    identity-plus-correction split was a simpler first experiment.
+
+5. Scope and reproducibility
+----------------------------
+run_fp4_roundoff.sh launches demo_fp4_roundoff.py in the pinned existing image.
+Defaults: 32^4, twelve solver iterations, tile 8192. --warm generates deterministic
+near-identity SU(3) links with Lie-algebra coefficient scale .05, not a thermalized
+ensemble. All modes see the same raw Gaussian RHS before their chosen encoding.
+Independent residual uses decoded gauge, FP32 tile arithmetic, FP16 intermediate
+storage; it measures error relative to that decoded gauge, not an original
+unquantized physical configuration. Tiny-lattice validation compares this oracle
+against the fully differentiable FP32 network. It is not an FP64 oracle.
+The early smoke.json predates the FP16 diagnostic and is not comparative evidence.
+
+Example:
+  ./run_fp4_roundoff.sh --mode center_dual --warm --iters 24 --restart-every 4 \
+    --output /work/benchmark-results/fp4-roundoff/custom-solver.json
+  ./run_fp4_roundoff.sh --trajectory --mode center_dual_mom --scalar64 --seed 45 \
+    --output /work/benchmark-results/fp4-roundoff/custom-trajectory.json
+  ./run_fp4_roundoff_tests.sh
+
+Full trajectories use one leapfrog step, dt=.001, four iterations per solve.
+Hamiltonian diagnostics add separate solves. Motion diagnostics retain a packed
+before-drift copy; measured peak includes it. Trajectory timings include tracing
+and first-use overhead; solver timings have an operator warmup first. Do not
+infer production throughput from these short exploratory cases.
+Results, memory model and conclusions: FP4_ROUNDOFF_RESULTS.txt (generated after
+runs). Raw per-iteration/per-stage records: benchmark-results/fp4-roundoff/.

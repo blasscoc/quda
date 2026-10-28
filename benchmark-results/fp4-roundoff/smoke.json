@@ -1,0 +1,73 @@
+{
+  "kind": "solver",
+  "dims": [
+    4,
+    4,
+    4,
+    4
+  ],
+  "mode": "center_dual",
+  "warm": false,
+  "gain": 1.0,
+  "rhs_scale": 1.0,
+  "iterations": 4,
+  "wall_seconds": 0.03227449099358637,
+  "mean_iteration_seconds": 0.0013742385017394554,
+  "logged_diagnostic_seconds": 0.002092875001835637,
+  "external_diagnostic_seconds": 0.10488339800212998,
+  "peak_allocated_bytes": 126976,
+  "vector_bytes": 4096,
+  "gauge_bytes": 12288,
+  "native_residual": 0.04341895133256912,
+  "independent_residual": 0.05747341737151146,
+  "history": [
+    {
+      "iteration": 1,
+      "seconds": 0.001962392998393625,
+      "operator_seconds": 0.00047294599062297493,
+      "diagnostic_seconds": 0.0005524830048670992,
+      "recursive_relative_residual": 0.34344249963760376,
+      "recomputed_relative_residual": 0.34466931223869324,
+      "alpha": 0.8467848300933838,
+      "beta": 0.11795275658369064,
+      "pAp": 3534.884521484375,
+      "denominator_ok": true
+    },
+    {
+      "iteration": 2,
+      "seconds": 0.0012291580060264096,
+      "operator_seconds": 0.00019571300072129816,
+      "diagnostic_seconds": 0.0005223389889579266,
+      "recursive_relative_residual": 0.19533571600914001,
+      "recomputed_relative_residual": 0.19820009171962738,
+      "alpha": 1.1369503736495972,
+      "beta": 0.32348576188087463,
+      "pAp": 310.5380859375,
+      "denominator_ok": true
+    },
+    {
+      "iteration": 3,
+      "seconds": 0.0011546140012796968,
+      "operator_seconds": 0.00019118499767500907,
+      "diagnostic_seconds": 0.0005075060034869239,
+      "recursive_relative_residual": 0.10279003530740738,
+      "recomputed_relative_residual": 0.10920345038175583,
+      "alpha": 1.178760290145874,
+      "beta": 0.27691006660461426,
+      "pAp": 96.89158630371094,
+      "denominator_ok": true
+    },
+    {
+      "iteration": 4,
+      "seconds": 0.0011507890012580901,
+      "operator_seconds": 0.00019396899733692408,
+      "diagnostic_seconds": 0.0005105470045236871,
+      "recursive_relative_residual": 0.014241520315408707,
+      "recomputed_relative_residual": 0.04341895133256912,
+      "alpha": 0.8294112682342529,
+      "beta": 0.01919599622488022,
+      "pAp": 38.131195068359375,
+      "denominator_ok": true
+    }
+  ]
+}
