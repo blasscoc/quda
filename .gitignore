@@ -5,3 +5,6 @@ __pycache__/
 *.ptx
 triton-api.txt
 dot-scaled-source.txt
+quda-cache/
+torch-compile-cache/
+triton-cache/

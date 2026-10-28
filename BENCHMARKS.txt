@@ -15,6 +15,31 @@ The existing replay bridge exposes quda_replay_solve_cg_d2d; its replay experime
 uses tolerance 1e-8 and maxiter 5000. A matched FP4 solver comparison is pending;
 the new fused kernels currently implement forward applications only.
 
+Measured CG reference (2026-10-28):
+QUDA FP64 CG, same 56^3x96 gauge and seed-45 Gaussian RHS, zero initial guess:
+  Setup with the existing 900-entry tuning cache: 15.4546 seconds.
+  Warmed A*x median (three samples): 0.301918 seconds.
+  Complete CG bridge call: 58.2625 seconds; internal invertQuda: 57.4228 seconds.
+  153 iterations; independently recomputed ||Ax-b||/||b|| = 9.25048e-9.
+One complete solve measured, not a multi-run median. The bridge's host staging
+is included in call wall time. These measurements supersede using the original
+Torch FP64 forward as the performance baseline. No Torch/FP4 solve has yet
+demonstrated the same residual and hence no solve speedup is established.
+
+Persistent caches and results:
+Run ./run_cg_benchmark.sh; it always mounts quda-cache/ read/write and sets
+QUDA_RESOURCE_PATH. QUDA saves tuning updates there during finalization.
+Benchmark JSON stores setup, operator samples, complete solve times, iterations
+and independently checked residual. benchmark-results/ keys results by SHA256
+of gauge, bridge, QUDA library, runner and layout code plus numerical settings,
+Torch/CUDA versions and GPU model. Matching completed measurements are returned
+as explicitly REUSED SAVED RESULT, with no GPU benchmark rerun. --refresh opts
+into a new measurement. Current pre-cache-runner measurement was explicitly
+registered with provenance; it was not rerun to populate this cache.
+The original uncached attempt was stopped after over 12 minutes; that is startup
+overhead, not solver runtime. Logs are retained as benchmark-cg-uncached.log.
+Torch compilation uses persistent torch-compile-cache/ and triton-cache/ mounts.
+
 Scope: complete A*x = M_even^dagger M_even*x with fixed gauge. These are Torch
 network forward timings, NOT QUDA/HMC trajectory timings. The 56^3x96 checkpoint
 is tiled and unthermalized. Kappa .156, periodic fermions. Reference is the
