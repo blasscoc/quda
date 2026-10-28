@@ -1,0 +1,98 @@
+Standalone reduced-storage two-flavour Wilson HMC — experimental
+================================================================
+
+Start:
+  ./run_compact_hmc.sh --precision fp4 --dims 4 4 4 4 \
+    --solver-iters 8 --steps 2 --dt .001 \
+    --checkpoint /work/chain.pt --log /work/chain.jsonl
+
+Resume (supply the original physics/integration/precision/tile settings):
+  ./run_compact_hmc.sh --precision fp4 --dims 4 4 4 4 \
+    --solver-iters 8 --steps 2 --dt .001 --resume /work/chain.pt \
+    --checkpoint /work/chain.pt --log /work/chain.jsonl
+
+--trajectories is the number of ADDITIONAL trajectories. Checkpoints retain the
+packed accepted gauge, CUDA RNG state, completed count and configuration. Writes
+use an atomic rename. Rejected proposals restore the packed gauge exactly.
+--energy-iters optionally sets a separate fixed endpoint solve budget; by default
+it equals --solver-iters. There is no residual-driven convergence stopping.
+--tile (default 8192 checkerboard sites) bounds decoded working storage.
+
+Modes: bf16, fp16, tf32, fp8, fp4. TF32 uses FP32 storage and TF32 native dot
+instructions; it is not a compact storage format. FP8 is E4M3, FP4 is E2M1.
+
+Workflow:
+  refresh Gaussian momentum and pseudofermion
+  -> fixed-iteration CG force solves + leapfrog kicks/drifts
+  -> endpoint approximate Hamiltonian
+  -> Metropolis accept/reject
+  -> checkpoint and JSONL record
+
+The operator is the Wilson even/odd Schur normal operator, A=M^dag M, with
+M=I-kappa^2 D_eo D_oe, no clover. phi=M^dag eta, E|eta|^2=1, and
+S_f=phi^dag A^-1 phi implement the two-flavour pseudofermion construction.
+Gauge action is Wilson plaquette. Boundary defaults to periodic (+1); use
+--boundary -1 for antiperiodic fermions in time. Gauge boundaries stay periodic.
+Gauge update is exp(dt P)U. P has eight independent Lie algebra coefficients,
+with -Tr(Ta Tb)=delta_ab. The kick differentiates gauge action and the smooth
+surrogate -x^dag A x with x held fixed. The approximate solve uses the native
+selected-precision forward operator. Quantization itself is not differentiated.
+
+Memory contract:
+  * Gauge, rejection backup, momentum, phi and EVERY persistent CG vector are
+    encoded in the selected format. There is no full FP32 master vector/gauge.
+  * Packed transport caches are refreshed after every gauge drift/restoration,
+    one tile at a time; no full floating gauge is constructed for setup.
+  * Native Dslash intermediates remain in the selected format.
+  * CG axpy/dot, force, and matrix exponential decode bounded site tiles into
+    FP32/complex64 scratch. Autograd retains a force tile, not a lattice graph.
+  * FP32 scalar reductions, native dot accumulators, fixed tiny generator/spin
+    matrices, and int32 neighbours/int8 boundary signs remain wider.
+  * Momentum's eight coefficients occupy two six-real rows (four padded zeros).
+  * FP4 uses 3 bytes + 1 FP8 scale per six reals: 4 bytes versus FP16's 12.
+    FP8 currently uses 6 bytes + 4-byte scale per row: 10 bytes. This scale
+    overhead limits FP8's savings; no claim of a 2x footprint reduction.
+  * --tile changes fixed working memory. It does not change lattice field size.
+
+This is an exploratory, approximate chain, NOT a validated QCD ensemble sampler.
+FP4/BF16/etc rounding affects gauge unitarity, momentum/noise distribution,
+solver recurrence, reversibility, and endpoint energy as well as force accuracy.
+CG assumptions do not hold exactly for the quantized nonlinear operator. A
+nonpositive/nonfinite denominator suppresses that CG update and is logged in
+solver_breakdowns; it does not change the iteration count. Acceptance alone
+cannot establish correctness. No hidden high-precision validation chain runs.
+No reunitarization, multigrid, clover, adaptive tolerance or thermalization claim.
+
+GPU checks:
+  ./run_compact_hmc_tests.sh
+
+Tests cover the tiled force against a full differentiable Wilson/action oracle
+(periodic and antiperiodic), a changed-gauge operator against the floating
+reference, fixed application count, all five precision modes, a complete finite
+trajectory, rejection rollback, reproducible checkpoint/restart and actual packed
+storage ratios. Test references are separate from the executable simulation.
+See compact_hmc_validation.json for results.
+
+Measured 32^4 end-to-end memory (GB10, pinned PyTorch 26.09 container):
+  ./run_compact_hmc.sh --dims 32 32 32 32 --precision MODE \
+    --solver-iters 2 --steps 1 --tile 8192 --dt .001
+
+These are short execution/memory probes, not physically converged trajectories.
+Peak includes trajectory tensors: rejection backup, momenta, pseudofermion,
+CG workspace, operator, force/autograd tiles and tensor-library workspace.
+It excludes allocations outside Torch (CUDA context/driver) and is not a
+whole-machine RAM reading. Reserved memory is separately reported in JSONL.
+Timing includes native first-use/JIT and is NOT a warmed throughput comparison.
+
+  mode    gauge MiB   operator MiB   peak allocated MiB   accepted   delta H
+  FP4          48            136               384.01         no     11404
+  FP16        144            328               944.01        yes       -74
+
+FP4 reduces the actual measured peak by 2.46x, and numerical field storage by
+3x. Precision-independent metadata and fixed tile workspace limit total savings.
+These two trajectories do not measure acceptance rates or demonstrate accuracy.
+Raw records: benchmark-results/hmc-memory-{fp4,fp16}.jsonl.
+
+Implementation is intentionally a transparent prototype. Python tile loops and
+pack/unpack/repacking overhead remain optimization targets; the isolated forward
+benchmark's speed must not be advertised as whole-trajectory throughput.

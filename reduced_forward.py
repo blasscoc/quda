@@ -5,7 +5,7 @@ import triton
 import triton.language as tl
 from wilson_network import checkerboard_geometry,complex_matrix_as_real
 
-DTYPES={'fp16':torch.float16,'bf16':torch.bfloat16,'fp8':torch.float8_e4m3fn}
+DTYPES={'fp16':torch.float16,'bf16':torch.bfloat16,'fp8':torch.float8_e4m3fn,'tf32':torch.float32}
 
 def encode_rows(x,precision):
     if precision!='fp8':return x.to(DTYPES[precision]).contiguous(),torch.empty(0,device=x.device)
@@ -35,7 +35,7 @@ def _reduced_dslash(W,WS,X,XS,IDX,BC,SKIP,SS,Y,YS,
         neighbor=tl.load(IDX+d*V+base+ks,(ks<G)&(base+ks<V),0)
         off=(n[None,:]//4)*V*24+neighbor[:,None]*24+spin[None,:]*6+kc[:,None]
         bp=tl.load(X+off,(ks[:,None]<G)&(base+ks[:,None]<V)&(kc[:,None]<6)&(n[None,:]<B*4),0.)
-        z=tl.dot(a,bp,max_num_imprecise_acc=0)
+        z=tl.dot(a,bp,input_precision="tf32",max_num_imprecise_acc=0)
         if FP8:
             sa=tl.load(WS+(d*V+sites)*3+col//2,(m<G*8)&(col<6)&(sites<V),1.)
             ns=tl.load(IDX+d*V+sites,(m<G*8)&(sites<V),0)

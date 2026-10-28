@@ -1,6 +1,10 @@
 Torch Wilson forward network
 ===========================
 
+Standalone experimental HMC with packed gauge, momenta and solver state is now
+available: see COMPACT_HMC.txt and run_compact_hmc.sh. Supports BF16/FP16/TF32/
+FP8/FP4, fixed solve budgets, and checkpoint/restart; no QUDA dependency.
+
 Packed FP4 forward is now available: see PACKED_FP4_RESULTS.txt.
 Run ./run_packed_forward.sh to read the saved packed model/input and write packed
 FP4 output directly. No floating-vector conversions occur in that forward path.
