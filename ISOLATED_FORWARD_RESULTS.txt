@@ -1,0 +1,67 @@
+Operator-only timing and storage — 56^3x96, batch 1, GB10 (2026-10-28)
+==================================================================
+
+These measurements replace the mixed Muon/QUDA harness numbers when discussing
+the forward operator itself. Every precision runs in a new process with only
+saved reduced-precision model and input tensors. No optimizer, master parameter,
+reference operator, FP64 reference vectors, CG solver or loss/residual calculations
+are instantiated. The benchmark asserts libquda is absent from process mappings.
+No gauge/checkpoint directory or QUDA library is mounted by its launcher.
+
+Precision | forward wall seconds | GPU seconds | model GiB | operator tensor peak GiB | retained allocator GiB
+FP4       | .197660              | .197651     | 2.1354    | 2.6383                   | 2.6563
+FP8       | .264062              | .264052     | 4.3964    | 5.6537                   | 5.6680
+FP16      | .184061              | .184052     | 5.1500    | 6.6578                   | 6.6641
+BF16      | .184921              | .184912     | 5.1500    | 6.6578                   | 6.6641
+
+All times are medians of 30 synchronized CUDA Graph replays of the compiled
+four-kernel forward, after compilation, capture and warmup. Both GPU event and
+host wall time are saved. Input/output stays in the selected storage format;
+there is no encoding, decoding, validation, disk IO or transfer in the timed call.
+Launch configuration is four sites/program, unroll eight, one warp. It was tuned
+for FP4, not independently optimized for every dtype. No solver convergence or
+equal-accuracy speedup claim follows from these operator timings.
+
+Memory definition (no whole-machine RAM estimate):
+- Model storage is the exact sum of registered tensor buffers, including geometry,
+  both-direction gauge transport matrices and scales where applicable.
+- Input and output each occupy .12561 GiB for FP4, .31403 GiB for FP8, and
+  .37683 GiB for FP16/BF16. FP4 has FP8 scale metadata; FP8 has FP32 scales.
+- After deleting warmup outputs and releasing unused allocator blocks, peak
+  counters are reset. The capture peak includes live model, input/output and
+  transient intermediate tensors needed by the operator. Replay peaks are also
+  recorded. This is approximately model storage plus four vector buffers.
+- Retained allocator bytes include the graph workspace retained for execution
+  and allocation rounding. They are not an additional quantity to add to the peak.
+- These are Torch-managed operator allocations, not an OS/process or full CUDA
+  context footprint. CUDA driver/module overhead outside Torch is excluded.
+  No QUDA allocation or optimizer state is included in either memory column.
+
+FP4 therefore needs about 2.64 GiB of operator tensors (2.66 GiB retained
+allocator storage) for this forward, not the previous 69 GiB system-wide number.
+FP16/BF16 are slightly faster in these clean measurements but use ~2.5x as much
+operator tensor memory. The previous mixed-workload forward times (.527–1.273 s)
+must not be used as isolated kernel timings. The mechanism of that slowdown was
+not profiled; this experiment removes the interfering workload rather than
+asserting a speculative explanation for it.
+
+Correctness remains a separate process/task. The earlier independent reference
+tests are retained. New saved FP16/BF16/FP8 model/input artifacts were prepared in
+another process and checked for exact output agreement after save/reload. FP4
+uses the previously validated packed artifacts. Higher-precision construction
+buffers from preparation cannot survive into these fresh benchmark processes.
+The approximation/rounding behavior of the operators has not changed.
+
+Run/read:
+  ./run_isolated_forward.sh --precision fp4
+Choose fp8, fp16 or bf16 for the other saved models. Existing result JSON blocks
+accidental remeasurement; read isolated_forward_comparison.csv or
+isolated_{precision}_result.json for cached results. The shell launcher pins
+the container and persists compilation caches. It mounts this directory only.
+
+Preparation, only if the saved reduced artifacts are missing:
+  prepare_forward_artifacts.py --gauge PATH
+Run preparation separately from timing. Saved artifacts are isolated_*_model.pt
+and isolated_*_input.pt; FP4 uses packed_forward_56x96.pt / packed_input_56x96.pt.
+Large .pt files remain local and ignored by Git; scripts and JSON/CSV results
+are version controlled.

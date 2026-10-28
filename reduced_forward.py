@@ -109,3 +109,18 @@ class ReducedWilson(torch.nn.Module):
         odd=self.dslash(q,s,1);middle=self.dslash(*odd,0,skip=(q,s))
         odd=self.dslash(*middle,1,True)
         return self.dslash(*odd,0,True,skip=middle)
+
+    def save(self,path):
+        torch.save({'format':'reduced-wilson-v1','dims':self.dims,'kappa':self.kappa,
+                    'precision':self.precision,'group_sites':self.group_sites,'unroll':self.unroll,
+                    'num_warps':self.num_warps,'state':self.state_dict()},path)
+
+    @classmethod
+    def load(cls,path,device='cuda'):
+        data=torch.load(path,map_location=device,weights_only=True)
+        if data['format']!='reduced-wilson-v1':raise ValueError('Unknown model format')
+        model=cls.__new__(cls);torch.nn.Module.__init__(model)
+        for k in ('dims','kappa','precision','group_sites','unroll','num_warps'):setattr(model,k,data[k])
+        model.v=math.prod(model.dims)//2
+        for k,v in data['state'].items():model.register_buffer(k,v)
+        return model
