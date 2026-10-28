@@ -1,0 +1,28 @@
+{
+  "source_dimensions": [
+    96,
+    96,
+    96,
+    96
+  ],
+  "target_dimensions": [
+    128,
+    128,
+    128,
+    128
+  ],
+  "volume_ratio": 3.160493827160493,
+  "measured_peak_allocated_gib": 25.375006198883057,
+  "measured_peak_reserved_gib": 25.537109375,
+  "measured_trajectory_minutes": 13.184125452783338,
+  "measured_total_wall_minutes": 13.835172176361084,
+  "system_total_gib": 119.67634201049805,
+  "sampled_minimum_available_gib": 84.48514175415039,
+  "additional_swap_bytes": 0,
+  "extrapolated_peak_allocated_gib": 80.19755045572916,
+  "extrapolated_peak_reserved_gib": 80.70987654320986,
+  "extrapolated_gauge_checkpoint_gib": 11.999999999999998,
+  "extrapolated_trajectory_minutes": 41.66834711003128,
+  "extrapolated_system_nonavailable_gib": 101.07987472157417,
+  "caveat": "128^4 not executed; volume extrapolation at fixed tile and solve budgets. Sampled system MemAvailable is distinct from peak Torch tensor allocation. Runtime is a coarse estimate, not a production trajectory forecast."
+}

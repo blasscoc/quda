@@ -1,0 +1,41 @@
+{
+  "source_sha256": {
+    "compact_hmc.py": "1be8339ef865f6c9c526523dae83208b3818279fd31916d60835161dbf4227b8",
+    "fp4_roundoff.py": "f33000f7debde5fc9662fd17e4541a94278c4b62f87f168598d421839c13d2ce",
+    "fp4_research_kernel.py": "755aafa631f4e11afe641cdcc24c85e7ef500b9626296869db74aa27f61382ac",
+    "fp4_momentum.py": "0831b892435b6d49ad9bde26d671c3859a6ed26697e25218525866c577a7b024",
+    "demo_fp4_roundoff.py": "9fd41a986fc3f24808475db84f62f833c370eea28aa8dbb291bf93232e036542",
+    "test_fp4_roundoff.py": "5cefd27abb6a2b437fe35505735ddcaec23cd02a4f5a25fad9d0999b8409f40d"
+  },
+  "checks": {
+    "research": "PASS: operator/reference, scaling, SR bias, compact momentum, stage energies, checkpoint/restart",
+    "regression": "PASS: force, fixed iteration count, all precision modes, rejection, restart, storage ratios"
+  },
+  "results": [
+    "benchmark-results/fp4-roundoff/baseline-seed-46.json",
+    "benchmark-results/fp4-roundoff/baseline-seed-47.json",
+    "benchmark-results/fp4-roundoff/cold-24-no-refresh.json",
+    "benchmark-results/fp4-roundoff/cold-baseline.json",
+    "benchmark-results/fp4-roundoff/cold-center.json",
+    "benchmark-results/fp4-roundoff/cold-center_dual.json",
+    "benchmark-results/fp4-roundoff/cold-dual.json",
+    "benchmark-results/fp4-roundoff/cold-refresh.json",
+    "benchmark-results/fp4-roundoff/cold-sr.json",
+    "benchmark-results/fp4-roundoff/compact-momentum-45.json",
+    "benchmark-results/fp4-roundoff/compact-momentum-46.json",
+    "benchmark-results/fp4-roundoff/compact-momentum-47.json",
+    "benchmark-results/fp4-roundoff/tiny-1.json",
+    "benchmark-results/fp4-roundoff/tiny-65536.json",
+    "benchmark-results/fp4-roundoff/trajectory-baseline.json",
+    "benchmark-results/fp4-roundoff/trajectory-center_dual.json",
+    "benchmark-results/fp4-roundoff/trajectory-center_dual_mom.json",
+    "benchmark-results/fp4-roundoff/trajectory-stable.json",
+    "benchmark-results/fp4-roundoff/warm-baseline.json",
+    "benchmark-results/fp4-roundoff/warm-center.json",
+    "benchmark-results/fp4-roundoff/warm-center_dual.json",
+    "benchmark-results/fp4-roundoff/warm-dual.json",
+    "benchmark-results/fp4-roundoff/warm-refresh.json",
+    "benchmark-results/fp4-roundoff/warm-sr.json"
+  ],
+  "scope": "Research and baseline checks passed; optional padded-layout CLI was separately smoke-tested. Historical timings retain their original run settings."
+}

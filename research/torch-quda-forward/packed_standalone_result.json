@@ -1,0 +1,29 @@
+{
+  "batch": 1,
+  "dims": [
+    56,
+    56,
+    56,
+    96
+  ],
+  "samples_s": [
+    0.19194928501383401,
+    0.19564511300995946,
+    0.2039160529966466,
+    0.200976260995958,
+    0.20093611600168515,
+    0.21078125698841177,
+    0.20691386000544298,
+    0.21827672100334894,
+    0.2218097949953517,
+    0.21529564799857326
+  ],
+  "median_s": 0.2054149565010448,
+  "output": "packed_output_56x96.pt",
+  "output_payload_dtype": "torch.uint8",
+  "output_scale_dtype": "torch.float8_e4m3fn",
+  "group_sites": 4,
+  "unroll": 8,
+  "num_warps": 1,
+  "note": "Saved FP4 model/input; no packing/unpacking. Compilation and disk IO excluded from timing."
+}

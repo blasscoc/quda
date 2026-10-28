@@ -1,0 +1,32 @@
+{
+  "dims": [
+    4,
+    6,
+    4,
+    8
+  ],
+  "gauge_source": "synthetic random SU3; correctness/performance smoke only",
+  "cases": [
+    {
+      "batch": 1,
+      "mode": "fused_fp4",
+      "compiled": true,
+      "compile_and_warmup_s": 5.256364981003571,
+      "setup_s": 0.02514977499959059,
+      "forward_s_samples": [
+        0.0002854890044545755,
+        0.00013769700308330357,
+        0.00012748799053952098
+      ],
+      "forward_s_median": 0.00013769700308330357,
+      "relative_error_vs_fp64": 0.1109810078444203,
+      "finite": true,
+      "relative_error_vs_eager": 3.977622431480064e-08,
+      "peak_allocated_GiB": 0.05609703063964844
+    }
+  ],
+  "torch": "2.14.0a0+b2c75dd062.nv26.09",
+  "gpu": "NVIDIA GB10",
+  "fused_group_sites": 2,
+  "note": "FP4 is native color GEMM operands only, FP32 accumulation and FP32 external state; no all-FP4 claim."
+}

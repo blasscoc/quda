@@ -1,0 +1,258 @@
+[
+  {
+    "boundary": 1,
+    "group": 1,
+    "unroll": 1,
+    "batch": 1,
+    "reference_error": 0.0,
+    "physical_error": 0.20209570306982935
+  },
+  {
+    "boundary": 1,
+    "group": 1,
+    "unroll": 1,
+    "batch": 4,
+    "reference_error": 0.0,
+    "physical_error": 0.20450577498068576
+  },
+  {
+    "boundary": 1,
+    "group": 1,
+    "unroll": 8,
+    "batch": 1,
+    "reference_error": 0.0,
+    "physical_error": 0.20815049087077034
+  },
+  {
+    "boundary": 1,
+    "group": 1,
+    "unroll": 8,
+    "batch": 4,
+    "reference_error": 0.0,
+    "physical_error": 0.20663498205409692
+  },
+  {
+    "boundary": 1,
+    "group": 2,
+    "unroll": 1,
+    "batch": 1,
+    "reference_error": 0.0,
+    "physical_error": 0.20392584005158243
+  },
+  {
+    "boundary": 1,
+    "group": 2,
+    "unroll": 1,
+    "batch": 4,
+    "reference_error": 0.0,
+    "physical_error": 0.2051158078613968
+  },
+  {
+    "boundary": 1,
+    "group": 2,
+    "unroll": 8,
+    "batch": 1,
+    "reference_error": 0.0,
+    "physical_error": 0.2052035078882781
+  },
+  {
+    "boundary": 1,
+    "group": 2,
+    "unroll": 8,
+    "batch": 4,
+    "reference_error": 0.0,
+    "physical_error": 0.2063298703485849
+  },
+  {
+    "boundary": 1,
+    "group": 4,
+    "unroll": 1,
+    "batch": 1,
+    "reference_error": 0.0,
+    "physical_error": 0.20440861360895476
+  },
+  {
+    "boundary": 1,
+    "group": 4,
+    "unroll": 1,
+    "batch": 4,
+    "reference_error": 0.0,
+    "physical_error": 0.20422439900254563
+  },
+  {
+    "boundary": 1,
+    "group": 4,
+    "unroll": 8,
+    "batch": 1,
+    "reference_error": 0.0,
+    "physical_error": 0.20380714326050245
+  },
+  {
+    "boundary": 1,
+    "group": 4,
+    "unroll": 8,
+    "batch": 4,
+    "reference_error": 0.0,
+    "physical_error": 0.20492069899643484
+  },
+  {
+    "boundary": 1,
+    "group": 8,
+    "unroll": 1,
+    "batch": 1,
+    "reference_error": 0.0,
+    "physical_error": 0.2097353611658261
+  },
+  {
+    "boundary": 1,
+    "group": 8,
+    "unroll": 1,
+    "batch": 4,
+    "reference_error": 0.0,
+    "physical_error": 0.20492560830138948
+  },
+  {
+    "boundary": 1,
+    "group": 8,
+    "unroll": 8,
+    "batch": 1,
+    "reference_error": 0.0,
+    "physical_error": 0.20435943507035156
+  },
+  {
+    "boundary": 1,
+    "group": 8,
+    "unroll": 8,
+    "batch": 4,
+    "reference_error": 0.0,
+    "physical_error": 0.20653149011510258
+  },
+  {
+    "boundary": -1,
+    "group": 1,
+    "unroll": 1,
+    "batch": 1,
+    "reference_error": 0.0,
+    "physical_error": 0.20309797792844864
+  },
+  {
+    "boundary": -1,
+    "group": 1,
+    "unroll": 1,
+    "batch": 4,
+    "reference_error": 0.0,
+    "physical_error": 0.20418800604931298
+  },
+  {
+    "boundary": -1,
+    "group": 1,
+    "unroll": 8,
+    "batch": 1,
+    "reference_error": 0.0,
+    "physical_error": 0.20535573044302086
+  },
+  {
+    "boundary": -1,
+    "group": 1,
+    "unroll": 8,
+    "batch": 4,
+    "reference_error": 0.0,
+    "physical_error": 0.20490331800694167
+  },
+  {
+    "boundary": -1,
+    "group": 2,
+    "unroll": 1,
+    "batch": 1,
+    "reference_error": 0.0,
+    "physical_error": 0.2068352925023061
+  },
+  {
+    "boundary": -1,
+    "group": 2,
+    "unroll": 1,
+    "batch": 4,
+    "reference_error": 0.0,
+    "physical_error": 0.2069129128783296
+  },
+  {
+    "boundary": -1,
+    "group": 2,
+    "unroll": 8,
+    "batch": 1,
+    "reference_error": 0.0,
+    "physical_error": 0.2060936410645447
+  },
+  {
+    "boundary": -1,
+    "group": 2,
+    "unroll": 8,
+    "batch": 4,
+    "reference_error": 0.0,
+    "physical_error": 0.2026197360110959
+  },
+  {
+    "boundary": -1,
+    "group": 4,
+    "unroll": 1,
+    "batch": 1,
+    "reference_error": 0.0,
+    "physical_error": 0.2049355199940767
+  },
+  {
+    "boundary": -1,
+    "group": 4,
+    "unroll": 1,
+    "batch": 4,
+    "reference_error": 0.0,
+    "physical_error": 0.20665406184007673
+  },
+  {
+    "boundary": -1,
+    "group": 4,
+    "unroll": 8,
+    "batch": 1,
+    "reference_error": 0.0,
+    "physical_error": 0.20049950556426316
+  },
+  {
+    "boundary": -1,
+    "group": 4,
+    "unroll": 8,
+    "batch": 4,
+    "reference_error": 0.0,
+    "physical_error": 0.20503977114618835
+  },
+  {
+    "boundary": -1,
+    "group": 8,
+    "unroll": 1,
+    "batch": 1,
+    "reference_error": 0.0,
+    "physical_error": 0.20742718523348846
+  },
+  {
+    "boundary": -1,
+    "group": 8,
+    "unroll": 1,
+    "batch": 4,
+    "reference_error": 0.0,
+    "physical_error": 0.20403958312364304
+  },
+  {
+    "boundary": -1,
+    "group": 8,
+    "unroll": 8,
+    "batch": 1,
+    "reference_error": 0.0,
+    "physical_error": 0.20665049181685902
+  },
+  {
+    "boundary": -1,
+    "group": 8,
+    "unroll": 8,
+    "batch": 4,
+    "reference_error": 0.0,
+    "physical_error": 0.20550359519442396
+  }
+]

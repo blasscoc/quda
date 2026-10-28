@@ -1,0 +1,33 @@
+CG FP64 versus compiled FP4 approximate-gradient SGD
+56^3 x 96, same gauge and seed-45 RHS, batch 1, zero initial guess.
+True residual: ||b-A_FP64*x||/||b||. Setup and compilation excluded.
+
+CG target | iterations | mean internal seconds/iteration | solve seconds | validated seconds
+1e-02 | 23 | 0.4072 | 10.1101 | 10.4690
+1e-04 | 65 | 0.3716 | 24.8430 | 25.1679
+1e-08 | 153 | 0.3714 | 57.5470 | 57.9034
+
+FP4 SGD: 120 steps, mean 2.3543 s/update, median 2.3609 s/update.
+Update-only total 282.5185 s; checks 44.3341 s; validated elapsed 327.1025 s.
+Best true residual 0.15237893 at step 14; final 0.20525339.
+Stop: plateau: less than 1% improvement over successive 40-step windows
+Learning rate 0.3825524; vanilla torch.optim.SGD, no momentum or weight decay.
+FP4 products use FP32 accumulation/state. The approximate A_fp4(x)-b direction
+is supplied explicitly; no claim of differentiating the quantized network.
+CG step time is internal solver time divided by iteration count; SGD steps
+are individually synchronized wall times. Both include their vector updates.
+SGD true residual checks run every step and are timed separately. CG is checked
+after each target solve. Validated wall times therefore include different
+monitoring overhead; use the update/solve column to compare algorithm cost.
+This is one SGD learning-rate/configuration trial, not proof that all FP4
+solvers or learned preconditioners cannot converge.
+Raw histories, target crossings, setup and calibration times: solver_tolerances.json.
+
+Requested targets 1e-1, 1e-2, 1e-3 (relative residual, not scalar loss):
+CG 1e-1: 6 iterations, mean internal 0.52959 s/iteration, solve 3.91801 s.
+CG 1e-2: 23 iterations, mean internal 0.40720 s/iteration, solve 10.11012 s.
+CG 1e-3: 44 iterations, mean internal 0.37683 s/iteration, solve 17.29106 s.
+The 1e-2 result is reused from the previous measurement; the other two were
+measured on the GPU with the same gauge/RHS and persistent tuning cache.
+FP4 SGD: none reached in 120 iterations; mean update time 2.35432 s.
+Raw CG results: solver_targets_cg.json. Table: solver_requested_targets.csv.

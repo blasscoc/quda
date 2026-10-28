@@ -1,0 +1,12 @@
+__pycache__/
+*.bin
+*.pt
+*.log
+*.ptx
+triton-api.txt
+dot-scaled-source.txt
+quda-cache/
+torch-compile-cache/
+triton-cache/
+
+runs/

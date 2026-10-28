@@ -1,0 +1,87 @@
+Muon precision comparison and memory measurements — 2026-10-28
+=============================================================
+
+Same 56^3x96 lattice, gauge checkpoint, seed-45 RHS, zero initial guess, matrix
+layout [8,429,568 sites,24 real spin/color components], official torch.optim.Muon.
+Three 20-step pilots at learning rates .25, .75, 2.0; select by final pilot
+residual, continue to at most 100 steps with the existing stagnation criterion.
+Momentum .95, Nesterov, five Newton-Schulz steps, no weight decay. All optimizers
+retain FP32 master state and momentum, and use the official BF16 Newton-Schulz
+implementation. Forward storage precision changes; all MMA accumulation is FP32.
+
+Precision | selected lr | selected iterations | best true residual | update s/iteration
+FP4       | .25         | 60                  | .301470            | .669187
+FP8 E4M3  | 2.0         | 80                  | .243441            | .925308
+FP16      | 2.0         | 60                  | .202738            | 1.411933
+BF16      | 2.0         | 60                  | .207366            | 1.400738
+None reached relative residual 1e-1, 1e-2 or 1e-3. Higher precision helps but
+does not resolve convergence for this constant-rate Muon configuration. These
+limited trials do not establish that other schedules/layouts cannot converge.
+Different learning rates were selected, so this is a protocol comparison, not
+a fixed-learning-rate precision-only experiment.
+
+Per-iteration times (mean over selected trajectory), in seconds:
+Precision | forward | Muon update | complete update excluding validation
+FP4       | .526537 | .118746     | .669187
+FP8       | .757454 | .114836     | .925308
+FP16      | 1.273340| .117467     | 1.411933
+BF16      | 1.266163| .112351     | 1.400738
+Complete update includes encoding, forward, gradient decoding/construction and
+Muon. Every iteration records these stages plus independent FP64 validation
+time, true residual and quadratic/residual losses. Setup/JIT is separate.
+These are mixed-workload timings; the earlier isolated FP4 .205 s forward is
+not substituted into them. Launch configuration was retained across formats
+(four sites, unroll eight, one warp), not independently optimized for each dtype.
+
+Forward implementation and validation:
+reduced_forward.py implements FP16/BF16/FP8 with the same four Dslash/Schur stage
+boundaries as the packed FP4 implementation. Payloads and intermediate vector
+arrays use the chosen dtype. FP8 uses E4M3 payloads with FP32 power-of-two scales
+per six real values; FP16/BF16 require no scale arrays. No FP4 emulation is used.
+PTX evidence records f16, bf16 and e4m3 native MMA operand types.
+Independent reduced-storage reference: 48 Dslash checks and 12 full-forward
+checks, both temporal boundaries and batches 1/4, plus exact compiled/eager
+agreement. FP16/BF16 reduction-order differences can flip a rounded output near
+a rounding boundary; tests use dtype-appropriate tolerances and save actual
+errors. Small-test FP64 forward error is roughly .04% FP16, .3% BF16, 5% FP8.
+
+Memory table: standardized SHORT REPLAYS, not retrospectively claimed original
+full-run peaks. Each replay does three two-step pilots plus two continuation
+steps (eight non-warmup updates) with persistent caches. Full convergence tests
+are not repeated. Model storage is exact; allocator peaks include setup and
+diagnostics. Torch counters exclude QUDA/CUDA allocations outside its allocator.
+
+Precision | model GiB | one encoded vector MiB | Torch allocated peak GiB | max sampled system unavailable GiB
+FP4       | 2.1354    | 128.625                | 13.0986                  | 69.4262
+FP8       | 4.3964    | 321.5625               | 15.9245                  | 76.4616
+FP16      | 5.1500    | 385.875                | 16.8654                  | 76.4964
+BF16      | 5.1500    | 385.875                | 16.8654                  | 76.5003
+
+Model buffers include both-direction transport weights, geometry and any scales.
+FP8 uses FP32 scale metadata in this implementation, so storage is not simply
+half FP16. FP4 uses FP8 scales. The FP32 master+momentum total is 1.5073 GiB for
+EVERY format, before gradients, Newton-Schulz scratch and pilot checkpoints.
+The Spark has unified RAM: do not add the Torch and system columns together.
+System unavailable = MemTotal - MemAvailable, sampled at setup/iteration
+boundaries. It includes QUDA reference validation, other processes and kernel
+usage; it is not exact process/GPU peak usage. Full-run transient peaks may differ.
+The CSV also preserves sampled live Torch memory and peak reserved memory.
+
+For context only, the saved CG FP64 log reports QUDA-tracked peak device storage
+61279.5 MiB (59.8433 GiB), excluding Torch allocations. QUDA source confirms this
+message prints max_total_bytes[DEVICE]. This is a different scope from the whole
+system column and should not be compared as if it were a whole-machine peak.
+
+Artifacts:
+muon_precision_comparison.csv and muon_memory_comparison.csv: tables.
+muon_{fp4,fp8,fp16,bf16}_results.json: full convergence/time/loss histories.
+memory_probe_{fp4,fp8,fp16,bf16}.json: memory counters and replay histories.
+reduced_validation.json, reduced_mma_evidence.json: numerical/instruction checks.
+summarize_precision_runs.py: regenerate tables without GPU execution.
+
+Reproduce a new convergence measurement (existing files block accidental reruns):
+  ./run_muon_fp4.sh --precision fp16 --output NEW.json
+Memory replay:
+  ./run_muon_fp4.sh --precision fp16 --pilot-steps 2 --max-steps 4 --output NEW_MEMORY.json
+Replace fp16 with bf16, fp8 or fp4. The existing launcher name is retained for
+compatibility. It pins the container and mounts persistent QUDA/Torch/Triton caches.

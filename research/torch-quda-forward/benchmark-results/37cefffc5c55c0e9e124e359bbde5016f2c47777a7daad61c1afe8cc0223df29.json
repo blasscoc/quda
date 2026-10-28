@@ -1,0 +1,57 @@
+{
+  "dims": [
+    56,
+    56,
+    56,
+    96
+  ],
+  "gauge": "/team/experiments/quda-max-volume-20261026/emmy_max_vol/ens_56x96_tiled/conf.00002.bin",
+  "seed": 45,
+  "kappa": 0.156,
+  "boundary": "periodic",
+  "precision": "QUDA FP64 including sloppy",
+  "init_s": 15.454637585993623,
+  "rhs": "same seeded Gaussian as full_56x96_benchmark.json; UKQCD native vector_reals=4",
+  "tolerance": 1e-08,
+  "maxiter": 1000,
+  "torch": "2.14.0a0+b2c75dd062.nv26.09",
+  "operator_s_samples": [
+    0.30191756499698386,
+    0.31113423200440593,
+    0.30013763600436505
+  ],
+  "operator_s_median": 0.30191756499698386,
+  "solve_call_wall_s": 58.262494169001,
+  "solve_internal_s": 57.422790743992664,
+  "iterations": 153,
+  "quda_reported_residual": 9.250477554479293e-09,
+  "independent_relative_residual": 9.250477554487396e-09,
+  "converged": true,
+  "timing_note": "one solve, includes invertQuda first-use overhead; operator median is warmed; bridge CPU staging included in call wall time",
+  "identity": {
+    "schema": 1,
+    "gauge_sha256": "533b319acaa445aea141d25a1b8043297fb5c45c86bcaebf7587e0de97a0b75f",
+    "bridge_sha256": "9b0705a3509dad5778615daa1684aa27a02c8a134308815c7a45681910bb9f7f",
+    "quda_sha256": "49136847d770bed8a8628267891c1ffae610844ea63d4d2a47efd950f1b9a63c",
+    "script_sha256": "0fa71f239ccd765971e4e8b53647ef684e7f0fd5db661f50fdda946c96f5352b",
+    "layout_sha256": "0ce34e75f19e6a7d373e38ffeb01f64e6933f7fe59edd794d2a543e1849da458",
+    "torch": "2.14.0a0+b2c75dd062.nv26.09",
+    "cuda": "13.4",
+    "gpu": "NVIDIA GB10",
+    "dims": [
+      56,
+      56,
+      56,
+      96
+    ],
+    "seed": 45,
+    "kappa": 0.156,
+    "tol": 1e-08,
+    "maxiter": 1000,
+    "container": "nvcr.io/nvidia/pytorch:26.09-py3"
+  },
+  "cache_key": "37cefffc5c55c0e9e124e359bbde5016f2c47777a7daad61c1afe8cc0223df29",
+  "completed": true,
+  "provenance": "Explicitly imported from pre-cache runner; measured previously, not during import",
+  "imported_from": "quda_cg_benchmark.json"
+}

@@ -1,0 +1,87 @@
+FP4 roundoff results: 32^4 GPU experiments
+=========================================
+All solver residuals below use the independent FP32-tile/FP16-storage diagnostic.
+That reference agreed with the full FP32 network to about 3.2e-4 on tiny cold/warm tests.
+References use each mode's decoded gauge and RHS; RHS quantization errors are separately recorded.
+All modes start from the same raw RHS. SR random draws use a separate RNG from RHS generation.
+Initial normalized residual-squared loss is 1. See CSV for every run.
+
+case                         iters   end residual    mean s/iter   solve+diagnostics s   peak MiB
+cold-24-no-refresh              24       0.036756       0.091899                3.6038     296.82
+cold-baseline                   12       0.321557       0.034763                0.6673     240.82
+cold-center                     12       0.321557       0.042317                0.8334     240.82
+cold-center_dual                12       0.036732       0.095182                1.8585     296.82
+cold-dual                       12       0.036732       0.071979                1.3101     296.82
+cold-refresh                    24       0.023845       0.104424                3.8989     296.82
+cold-sr                         12       0.456677       0.056508                0.9449     240.82
+tiny-1                          12       1.162203       0.089465                1.7652     296.82
+tiny-65536                      12       0.036894       0.093139                1.8273     296.82
+warm-baseline                   12       0.318633       0.035245                0.6771     272.82
+warm-center                     12       0.317733       0.040559                0.8182     272.82
+warm-center_dual                12       0.037317       0.093878                1.8417     328.82
+warm-dual                       12       0.037156       0.068687                1.2482     328.82
+warm-refresh                    24       0.024054       0.105373                3.9347     328.82
+warm-sr                         12       0.459527       0.058331                0.9613     272.82
+
+Trajectory comparisons: one leapfrog step, dt=.001, four iterations per solve.
+mode/seed                       DeltaH         accepted   peak MiB   changed links/total
+trajectory-baseline             11336.00000    False     392.79 0/4194304
+baseline-seed-46                11200.00000    False     392.79 0/4194304
+baseline-seed-47                11252.00000    False     392.79 0/4194304
+trajectory-center_dual          11352.00000    False     440.01 4194304/4194304
+trajectory-center_dual_mom         60.00000    False     472.01 4194304/4194304
+trajectory-stable                  64.54007    False     472.01 4194304/4194304
+compact-momentum-45               107.88078    False     448.01 4194304/4194304
+compact-momentum-46               106.73913    False     448.01 4194304/4194304
+compact-momentum-47              -538.73757     True     448.01 4194304/4194304
+
+Per-stage Hamiltonian, compact eight-coordinate momentum, seed 45:
+kick_1: H 23057731.64303970 -> 23057905.88539124; delta 174.24235153; operation 2.91093s; energy diagnostic 0.93908s
+drift_1: H 23057905.88539124 -> 23057838.74271698; delta -67.14267426; operation 1.43986s; energy diagnostic 0.95878s
+final_half_kick: H 23057838.74271698 -> 23057839.52382011; delta 0.78110313; operation 2.83085s; energy diagnostic 0.94828s
+
+Conclusions:
+* Two-component FP4 gives about an order-of-magnitude lower operator/storage
+  error, at roughly twice the solve iteration cost in this prototype.
+* Recomputing/restarting residual every four iterations improves the 24-step
+  result over the matched 24-step no-refresh control, but a ~2.4% residual
+  floor remains. No 1e-2 or 1e-3 convergence claim is justified.
+* Tiny-RHS scaling is essential: gain 65536 at amplitude 1e-5 restores useful
+  behavior. Gain is supplied explicitly, not automatically tuned.
+* State-only stochastic rounding worsened this solver in the tested cases.
+* The direct gauge representation froze every link at this dt. Centered gauge
+  storage plus a matching native cache/kernel preserved all link updates.
+* Momentum compensation greatly reduced |DeltaH|, but the remaining drift
+  varied widely across seeds. One accepted proposal in three is NOT an
+  acceptance-rate estimate or evidence of detailed balance/physical validity.
+* Scalar FP64 reduction changed the padded-momentum seed-45 DeltaH from 60
+  to about 64.54. Summation error matters, but does not explain all the drift.
+* The compact-momentum variant changes block boundaries (8 coefficients per
+  scale instead of two padded groups of 6). Its energy differs from the padded
+  variant; this is an accuracy/memory tradeoff, not a bit-identical packing.
+
+128^4 memory model (not run):
+  Existing FP4 HMC volume-dependent peak: approximately 80 GiB.
+  Second components for seven live solver vectors: +14 GiB.
+  Compact two-component momentum: 10 GiB vs previous 8 GiB, hence +2 GiB.
+  Projected tensor peak: about 96 GiB, plus bounded tile/library workspace.
+  Measured candidate peak at 32^4: 448.009 MiB. Subtracting the observed
+  ~64 MiB fixed workspace before volume scaling agrees with this model.
+  Blindly scaling the whole 32^4 peak yields 112 GiB and overcounts that fixed
+  workspace. Neither estimate is a substitute for a larger measurement.
+  Checkpoint staging may add ~12 GiB, leaving only modest OS/driver headroom
+  in 119.68 GiB shared RAM. 128^4 remains a target, not a demonstrated capacity
+  for this new recipe. Streamed checkpoint serialization is a sensible next step.
+
+Limitations and next experiments:
+  No thermalized configurations, physical-mass claim, exact reversibility, or
+  sampling correctness established. Further investigate gauge coordinates that
+  enforce SU(3), adaptive per-vector scale metadata, and a smoother/more accurate
+  operator before interpreting Hamiltonian rejection as only a step-size issue.
+  Do not absorb quantization bias into a rescaled acceptance exponent.
+  No MS-EDEN/Hadamard implementation or learned preconditioner is claimed.
+  Native tensor-core products retain FP32 accumulation; energy-only scalar
+  reductions optionally use FP64. There is no lattice-sized FP32 master state.
+
+Tests: run_fp4_roundoff_tests.sh and run_compact_hmc_tests.sh passed.
+Formalism, workflow mapping, bibliography and commands: FP4_ROUNDOFF_RESEARCH.txt.

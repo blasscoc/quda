@@ -1,0 +1,70 @@
+FP4 standalone HMC: 96^4 execution/memory smoke test
+===================================================
+
+Run on the DGX Spark / GB10 with 119.676 GiB total shared RAM.
+Pinned PyTorch 26.09 container; research/compact-hmc, implementation 006f674.
+No QUDA or resident high-precision reference simulation.
+
+Command:
+  ./run_compact_hmc.sh --dims 96 96 96 96 --precision fp4 \
+    --solver-iters 2 --energy-iters 2 --steps 1 --tile 65536 --dt .001 \
+    --checkpoint /work/benchmark-results/hmc-96-smoke/chain.pt \
+    --log /work/benchmark-results/hmc-96-smoke/trajectory.jsonl
+
+RESULT: full execution completed with exit code 0, including accept/reject and
+packed checkpoint serialization. The checkpoint was subsequently reopened with
+Torch mmap/weights_only and its format, completed count and dimensions checked.
+This tests memory and execution only; it is not a validated sampling run.
+
+Measured at 96^4 (84,934,656 sites):
+  Peak Torch allocated tensor memory     25.3750 GiB
+  Peak Torch reserved memory             25.5371 GiB
+  Packed gauge                            3.7969 GiB
+  Operator (including metadata)          10.7578 GiB
+  Trajectory wall time                  791.05 seconds (13.18 minutes)
+  Entire command incl setup/checkpoint  830.11 seconds (13.84 minutes)
+  Sampled minimum system MemAvailable    84.49 GiB
+  Increase in swap use                    0 bytes
+  CG denominator breakdown count          0
+  Proposal accepted                       NO
+  Delta H                            +915,968
+
+Both initial and final approximate Hamiltonians were finite. The proposal was
+rejected and the saved gauge is the restored cold-start state, NOT a new accepted
+configuration. This rejection does not negate the memory measurement, but shows
+that useful sampling remains unresolved. Zero CG breakdowns is not convergence.
+Only two fixed iterations per solve and one leapfrog step were used.
+
+128^4 extrapolation (268,435,456 sites; 256/81 = 3.16049 times the volume):
+  Peak allocated tensors                 80.20 GiB
+  Peak reserved memory                   80.71 GiB
+  Packed gauge checkpoint                12.00 GiB
+  Same short trajectory                  ~41.7 minutes (coarse volume scaling)
+
+128^4 WAS NOT RUN. Fixed tile workspace does not grow with volume, so scaling
+all measured tensor memory is mildly conservative. Kernel behavior, allocator
+fragmentation and runtime need measurement at the target size. The runtime
+estimate is for this one-step/two-iteration smoke configuration, not a physically
+useful trajectory or ensemble-generation rate.
+
+System-memory cross-check:
+  Host MemAvailable was sampled every five seconds, including startup and
+  checkpoint writing. Scale the observed reduction from baseline by 256/81,
+  while retaining baseline system occupancy once: approximately 101.08 GiB
+  nonavailable RAM at 128^4, leaving approximately 18.60 GiB of this machine's
+  119.68 GiB total. This is a rough budget, NOT a measured peak or guarantee;
+  sampling can miss brief peaks and caches change. In particular, saving a
+  128^4 checkpoint can need host staging for its 12 GiB packed gauge.
+
+Conclusion: 128^4 looks feasible in memory with this implementation and settings,
+with a materially better basis than the previous 32^4-only extrapolation. Large
+lattice acceptance, precision bias, reversibility and useful runtime remain
+separate research problems.
+
+Raw evidence: benchmark-results/hmc-96-smoke/
+  trajectory.jsonl        device tensor peaks, runtime, energies, configuration
+  host-summary.json       exact command, process exit status, host-memory summary
+  system-memory.csv       sampled host availability and swap use
+  extrapolation-128.json  calculations and limitations
+  run.log                local stdout/stderr (ignored by git)
+  chain.pt               local packed checkpoint (ignored by git; ~3.8 GiB)
