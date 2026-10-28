@@ -5,6 +5,7 @@ is confined to site tiles, plus scalar reductions and native MMA accumulators.
 Quantized solves and forces are approximate; this is NOT a validated sampler.
 """
 import argparse
+import functools
 import json
 import math
 import time
@@ -16,6 +17,30 @@ from reduced_forward import ReducedWilson, DTYPES, encode_rows, decode_rows
 from wilson_network import WilsonNormalNetwork, gamma_projectors, complex_matrix_as_real
 
 PRECISIONS = ('bf16', 'fp16', 'tf32', 'fp8', 'fp4')
+
+
+def timed(method):
+    @functools.wraps(method)
+    def wrapped(self, *args, **kwargs):
+        if not self.diagnostics:
+            return method(self, *args, **kwargs)
+        torch.cuda.synchronize()
+        frame = {'children': 0.}
+        self.timing_stack.append(frame)
+        start = time.perf_counter()
+        try:
+            return method(self, *args, **kwargs)
+        finally:
+            torch.cuda.synchronize()
+            elapsed = time.perf_counter()-start
+            self.timing_stack.pop()
+            if self.timing_stack:
+                self.timing_stack[-1]['children'] += elapsed
+            row = self.timings.setdefault(method.__name__, dict(calls=0, inclusive_seconds=0., exclusive_seconds=0.))
+            row['calls'] += 1
+            row['inclusive_seconds'] += elapsed
+            row['exclusive_seconds'] += elapsed-frame['children']
+    return wrapped
 
 
 class Field:
@@ -93,6 +118,8 @@ class HMC:
                         j, sign = self.shift(p, ids, mu, delta)
                         self.op.indices[p, mu, b, sl] = j.int()
                         self.op.signs[p, mu, b, sl] = sign.to(torch.int8)
+        self.diagnostics = False
+        self.timings, self.timing_stack, self.solves = {}, [], []
         self.breakdowns = torch.zeros((), device='cuda', dtype=torch.int64)
 
     def tiles(self):
@@ -115,6 +142,7 @@ class HMC:
     def u(self, mu, p, ids):
         return torch.view_as_complex(self.gauge.get((mu, p, ids)).reshape(-1, 3, 3, 2).contiguous())
 
+    @timed
     def cold(self):
         eye = torch.view_as_real(torch.eye(3, dtype=torch.complex64, device='cuda')).reshape(3, 6)
         for sl, ids in self.tiles():
@@ -123,6 +151,7 @@ class HMC:
                     self.gauge.put((mu, p, sl), eye.expand(len(ids), 3, 6))
         self.refresh()
 
+    @timed
     def refresh(self):
         for p in (0, 1):
             for sl, ids in self.tiles():
@@ -138,12 +167,14 @@ class HMC:
     def vector(self):
         return Field((1, self.v, 4, 6), self.precision)
 
+    @timed
     def random_vector(self):
         x = self.vector()
         for sl, ids in self.tiles():
             x.put((slice(None), sl), torch.randn(1, len(ids), 4, 6, device='cuda')/math.sqrt(2))
         return x
 
+    @timed
     def apply(self, x):
         return Field(x.shape, self.precision, self.op(*x.pair()))
 
@@ -151,10 +182,12 @@ class HMC:
         return Field(x.shape, self.precision, self.op.dslash(*x.pair(), parity, dagger,
                      skip=None if skip is None else skip.pair()))
 
+    @timed
     def schur(self, x, dagger=False):
         odd = self.dslash(x, 1, dagger)
         return self.dslash(odd, 0, dagger, skip=x)
 
+    @timed
     def dot(self, x, y):
         total = torch.zeros((), device='cuda')
         for sl, _ in self.tiles():
@@ -162,11 +195,13 @@ class HMC:
             total += (x.get(ix)*y.get(ix)).sum()
         return total
 
+    @timed
     def axpy(self, out, a, x, b, y):
         for sl, _ in self.tiles():
             ix = (slice(None), sl)
             out.put(ix, a*x.get(ix)+b*y.get(ix))
 
+    @timed
     def solve(self, rhs, iterations):
         x = self.vector()
         x.q.zero_()
@@ -174,9 +209,21 @@ class HMC:
             x.s.fill_(1)
         r, p = rhs.clone(), rhs.clone()
         rr = self.dot(r, r)
+        if self.diagnostics:
+            solve_record = dict(index=len(self.solves)+1, rhs_norm=float(rr.sqrt()), iterations=[], label=getattr(self, 'solve_label', 'unspecified'))
+            self.solves.append(solve_record)
+            print(json.dumps({'event': 'solve_start', 'index': solve_record['index'], 'label': solve_record['label']}), flush=True)
+        rhs_rr = rr.clone()
         # Fixed number of applications, no convergence checks or host transfers.
-        for _ in range(iterations):
+        for iteration in range(iterations):
+            if self.diagnostics:
+                torch.cuda.synchronize()
+                iteration_start = time.perf_counter()
+                op_start = iteration_start
             ap = self.apply(p)
+            if self.diagnostics:
+                torch.cuda.synchronize()
+                operator_seconds = time.perf_counter()-op_start
             pap = self.dot(p, ap)
             good = torch.isfinite(pap) & (pap > 1.e-30) & torch.isfinite(rr)
             self.breakdowns += (~good).long()
@@ -188,8 +235,26 @@ class HMC:
             self.axpy(p, 1., r, ratio, p)
             rr = new
             del ap
+            if self.diagnostics:
+                torch.cuda.synchronize()
+                iteration_seconds = time.perf_counter()-iteration_start
+                diagnostic_start = time.perf_counter()
+                ax = self.apply(x)
+                self.axpy(ax, 1., rhs, -1., ax)
+                true_rr = self.dot(ax, ax)
+                del ax
+                torch.cuda.synchronize()
+                row = dict(iteration=iteration+1, seconds=iteration_seconds,
+                           operator_seconds=operator_seconds,
+                           diagnostic_seconds=time.perf_counter()-diagnostic_start,
+                           recursive_relative_residual=float((rr/rhs_rr.clamp_min(1.e-30)).sqrt()),
+                           recomputed_relative_residual=float((true_rr/rhs_rr.clamp_min(1.e-30)).sqrt()),
+                           alpha=float(alpha), beta=float(ratio), pAp=float(pap), denominator_ok=bool(good))
+                solve_record['iterations'].append(row)
+                print(json.dumps(dict(event='solver_iteration', solve=solve_record['index'], **row)), flush=True)
         return x
 
+    @timed
     def momentum(self):
         # Eight independent Lie algebra coordinates, padded to two codec rows.
         p = Field((4, 2, self.v, 2, 6), self.precision)
@@ -201,6 +266,7 @@ class HMC:
                     p.put((mu, parity, sl), a.reshape(-1, 2, 6))
         return p
 
+    @timed
     def kinetic(self, mom):
         out = torch.zeros((), device='cuda')
         for sl, _ in self.tiles():
@@ -209,6 +275,7 @@ class HMC:
                     out += .5*mom.get((mu, p, sl)).flatten(1)[:, :8].square().sum()
         return out
 
+    @timed
     def gauge_action(self):
         out = torch.zeros((), device='cuda')
         for sl, ids in self.tiles():
@@ -221,7 +288,9 @@ class HMC:
                         out += self.beta*(3.-loop.diagonal(dim1=-2, dim2=-1).real.sum(-1)).sum()/3
         return out
 
+    @timed
     def energy(self, phi, mom, iterations):
+        self.solve_label = 'hamiltonian'
         x = self.solve(phi, iterations)
         return self.gauge_action()+self.kinetic(mom)+self.dot(phi, x)
 
@@ -257,7 +326,9 @@ class HMC:
             action = action+2*self.kappa**2*((lp*fw+lq*bw)*sign[:, None, None, None]).sum()
             return torch.autograd.grad(action, theta)[0].detach()
 
+    @timed
     def kick(self, mom, phi, dt, iterations):
+        self.solve_label = 'force'
         x = self.solve(phi, iterations)
         z = self.dslash(x, 1)
         y = self.dslash(z, 0, skip=x)  # M x
@@ -270,6 +341,7 @@ class HMC:
                     coeff[:, :8] -= dt*grad
                     mom.put((mu, p, sl), coeff.reshape(-1, 2, 6))
 
+    @timed
     def drift(self, mom, dt):
         for sl, ids in self.tiles():
             for mu in range(4):
@@ -280,6 +352,7 @@ class HMC:
                     self.gauge.put((mu, p, sl), torch.view_as_real(u).reshape(-1, 3, 6))
         self.refresh()
 
+    @timed
     def trajectory(self, steps, dt, iterations, energy_iterations):
         backup = self.gauge.clone()
         mom = self.momentum()
@@ -299,6 +372,7 @@ class HMC:
             self.refresh()
         return dict(h_initial=float(h0), h_final=float(h1), delta_h=delta, accepted=accepted)
 
+    @timed
     def checkpoint(self, path, config, completed):
         payload = dict(format='compact-hmc-v1', config=config, completed=completed,
                        gauge_q=self.gauge.q, gauge_s=self.gauge.s,
@@ -321,6 +395,7 @@ def main():
     p.add_argument('--steps', type=int, default=2)
     p.add_argument('--dt', type=float, default=.01)
     p.add_argument('--trajectories', type=int, default=1)
+    p.add_argument('--no-diagnostics', action='store_true')
     p.add_argument('--seed', type=int, default=45)
     p.add_argument('--checkpoint', type=Path, default=Path('compact_hmc.pt'))
     p.add_argument('--resume', type=Path)
@@ -343,6 +418,7 @@ def main():
             if saved['config'][k] != config[k]:
                 p.error(f'Resume mismatch for {k}: supply the original settings')
     h = HMC(a.dims, a.precision, a.kappa, a.beta, a.tile, a.boundary)
+    h.diagnostics = not a.no_diagnostics
     completed = 0
     if saved:
         h.gauge.q.copy_(saved['gauge_q'])
@@ -360,6 +436,8 @@ def main():
             torch.cuda.synchronize()
             torch.cuda.reset_peak_memory_stats()
             h.breakdowns.zero_()
+            setup_timings = h.timings if i == 0 else {}
+            h.timings, h.solves = {}, []
             start = time.perf_counter()
             result = h.trajectory(a.steps, a.dt, a.solver_iters, a.energy_iters)
             torch.cuda.synchronize()
@@ -369,13 +447,20 @@ def main():
                           peak_reserved_bytes=torch.cuda.max_memory_reserved(),
                           gauge_bytes=h.gauge.bytes(), operator_bytes=sum(t.numel()*t.element_size() for t in h.op.buffers()),
                           solver_breakdowns=int(h.breakdowns), experimental=True, config=config)
+            h.checkpoint(a.checkpoint, config, completed+i+1)
+            result.update(timings=h.timings, setup_timings=setup_timings, solves=h.solves,
+                          diagnostics_enabled=h.diagnostics,
+                          residual_definition='||b-A_quantized(x)||/||b||; residual subtraction also quantized; not an FP64 oracle')
             # Strict JSON: nonfinite energies become null and are always rejected.
-            result = {k: (v if not isinstance(v, float) or math.isfinite(v) else None) for k, v in result.items()}
+            def clean(value):
+                if isinstance(value, dict): return {k: clean(v) for k, v in value.items()}
+                if isinstance(value, list): return [clean(v) for v in value]
+                return None if isinstance(value, float) and not math.isfinite(value) else value
+            result = clean(result)
             line = json.dumps(result, allow_nan=False)
             print(line, flush=True)
             log.write(line+'\n')
             log.flush()
-            h.checkpoint(a.checkpoint, config, completed+i+1)
 
 
 if __name__ == '__main__':

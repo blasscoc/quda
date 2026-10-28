@@ -1,0 +1,50 @@
+64^4 FP4 instrumented smoke test
+================================
+One leapfrog step, four fermion solves, two iterations per solve, tile 65536.
+Diagnostics are enabled by default; --no-diagnostics disables timing wrappers
+and the additional residual applications. Fixed solver iteration budgets remain
+unchanged. Every iteration prints a live solver_iteration event.
+
+Synchronized host wall times include GPU completion. Inclusive stage times
+contain nested calls: do NOT add them together. Exclusive times subtract timed
+children. First-use/JIT overhead is included in the first recorded calls.
+
+Each iteration records total algorithm seconds, operator seconds, separately
+measured residual-diagnostic seconds, recursive and recomputed relative residual,
+alpha, beta, pAp and denominator validity. Recomputed residual uses the quantized
+operator and quantized subtraction, not an FP64 reference. It costs one extra
+operator application per iteration, excluded from iteration_seconds but included
+in solve/trajectory stage times. No residual-based early stopping is introduced.
+
+Results:
+  First solver iteration: 3.400982 s (first-use overhead included)
+  Remaining seven iterations: 0.328634 s mean
+  Additional residual diagnostics: 2.018537 s total
+  Total trajectory: 162.788309 s
+  Checkpoint: 6.216170 s
+  Peak allocated tensors: 5.062507 GiB
+
+Stage totals (exclusive seconds, to avoid nested double counting):
+  momentum: 0.089219 s (1 calls)
+  random_vector: 0.029672 s (1 calls)
+  schur: 3.155667 s (1 calls)
+  dot: 0.504127 s (30 calls)
+  apply: 6.326562 s (16 calls)
+  axpy: 0.993231 s (32 calls)
+  solve: 0.048637 s (4 calls)
+  gauge_action: 28.003695 s (2 calls)
+  kinetic: 0.099390 s (2 calls)
+  energy: 0.000100 s (2 calls)
+  kick: 106.426068 s (2 calls)
+  refresh: 1.685820 s (2 calls)
+  drift: 15.391348 s (1 calls)
+  trajectory: 0.034759 s (1 calls)
+  checkpoint: 6.216170 s (1 calls)
+
+Convergence: all four solves ended with recursive residual 0.103847 and
+recomputed residual 0.266503. Neither reached 1e-1, 1e-2 or 1e-3. The discrepancy
+shows the quantized recurrence residual is an unreliable convergence indicator.
+Proposal rejected, delta H +180288; zero denominator breakdowns. This is an
+execution/diagnostic test, not validated sampling.
+
+Raw evidence: benchmark-results/hmc-64-timed.jsonl and hmc-64-timed.log.
