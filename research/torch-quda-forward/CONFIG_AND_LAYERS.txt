@@ -33,9 +33,10 @@ Hyperparameters:
   execution.trajectories: number of additional trajectories to execute.
   logging.tensorboard: use torch.utils.tensorboard.SummaryWriter.
 
-CG is currently the only solver algorithm. SGD/Adam/Muon adapters are not implied
-by the module abstraction. Physics parameters (beta, kappa, lattice, boundary)
-are stored separately from numerical hyperparameters.
+Each solver stage selects algorithm="cg", "sgd", "adam", or "muon" independently.
+See SOLVERS_AND_STOPPING.txt for packed optimizer state, early stopping, residual
+semantics and integrator abort guards. Physics parameters (beta, kappa, lattice,
+boundary) are stored separately from numerical hyperparameters.
 
 Example: 10 integration steps require 10 gauge drifts and 11 force evaluations
 (half-kicks at the ends and combined full kicks inside). With stage-energy
@@ -56,13 +57,25 @@ Execution graph, using real nn.Module forward calls and hooks:
     Hamiltonian
     Metropolis
 
-Layers call the existing physics implementation. Solver and operator are shared
-by the energy and force paths. They are stateful modules, not learned layers.
+HMCTrajectory owns proposal orchestration, acceptance, abort and rollback.
+LeapfrogIntegrator owns the kick/drift schedule; FermionSolve dispatches the
+configured per-stage policy to hmc_solvers, sharing FermionOperator between the
+energy and force paths. Backend kernels own the packed physics state.
+They are stateful modules, not learned layers.
 Packed buffers belong to the backend; module.state_dict() is NOT the simulation
 checkpoint. No end-to-end autograd or whole-trajectory torch.compile support is
 claimed. The existing smooth force surrogate still uses autograd, and native
-FP4 products still run through Triton. This is an interface organization change,
-not a new arithmetic implementation or a memory-expanding master representation.
+FP4 products still run through Triton. No full precision master lattice is added.
+
+Programmatic construction:
+  from hmc_config import HMCConfig
+  from hmc_layers import HMCTrajectory
+  config = HMCConfig.from_pretrained('configs/fp4-solvers')
+  workflow = HMCTrajectory.from_config(config)  # seed, allocate, cold start
+  result = workflow()                         # one complete trajectory
+Changing physics/precision/tile settings requires constructing a new workflow.
+Numerical policies can be changed with workflow(new_config). The run script
+handles experiment logging and trajectory-boundary checkpoint/resume.
 
 Every run writes:
   config.json       fully resolved settings
@@ -90,7 +103,8 @@ H components before/after stages, DeltaH, acceptance and memory. Events are
 verified with TensorBoard's EventAccumulator; the viewer is not auto-started.
 
 Validation:
-  ./run_hmc_config_tests.sh  (expects the recorded runs/config-smoke test output)
+  ./run_hmc_config_tests.sh  (self-contained)
+  ./run_hmc_solver_tests.sh
 10-step 4^4 test: 10 drifts, 11 force solves, 13 total solves, 29 total solver
 iterations (2 each force, 3 initial energy, 4 final energy), one proposal.
 Independent stage budgets, residual cadence, real module hooks, schema failures

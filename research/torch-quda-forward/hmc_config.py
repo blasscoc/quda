@@ -3,12 +3,21 @@ import copy,json,math,subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+SOLVER_DEFAULTS={
+ 'algorithm':'cg','iterations':4,'residual_refresh_every':0,
+ 'learning_rate':.1,'momentum':0.,'nesterov':False,
+ 'betas':[.9,.999],'epsilon':1.e-8,'muon_ns_steps':5,
+ 'stopping':{'rtol':None,'atol':None,'min_iterations':0,'check_every':1,
+             'stagnation_checks':0,'min_relative_improvement':.001,'divergence_factor':None}}
+
 DEFAULTS={
  'schema_version':1,
  'physics':{'lattice':[32,32,32,32],'beta':5.6,'kappa':.156,'temporal_boundary':1},
- 'integrator':{'method':'leapfrog','steps':1,'step_size':.001},
- 'solvers':{name:{'iterations':n,'residual_refresh_every':0} for name,n in
-            [('force',4),('initial_energy',4),('final_energy',4),('diagnostic_energy',4)]},
+ 'integrator':{'method':'leapfrog','steps':1,'step_size':.001,
+               'stopping':{'reject_on_solver_failure':False,'reject_on_unconverged':False,
+                           'max_abs_delta_h':None,'check_every_steps':1}},
+ 'solvers':{name:copy.deepcopy(SOLVER_DEFAULTS) for name in
+            ('force','initial_energy','final_energy','diagnostic_energy')},
  'precision':{'format':'fp4','solver_components':1,'gauge_representation':'direct',
               'momentum_components':1,'energy_reduction':'fp32','solver_gain':1.},
  'diagnostics':{'enabled':True,'residual_every':1,'hamiltonian_each_stage':True},
@@ -42,8 +51,39 @@ class HMCConfig:
         i=d['integrator']
         if i['method']!='leapfrog':raise ValueError('Only leapfrog is implemented')
         integer(i['steps'],1,'integrator.steps');finite(i['step_size'],'step_size',True)
+        guard=i['stopping']
+        for key in ('reject_on_solver_failure','reject_on_unconverged'):
+            if type(guard[key])!=bool:raise ValueError(key+' must be boolean')
+        integer(guard['check_every_steps'],1,'check_every_steps')
+        if guard['max_abs_delta_h'] is not None:finite(guard['max_abs_delta_h'],'max_abs_delta_h',True)
         for name,s in d['solvers'].items():
             integer(s['iterations'],1,name+'.iterations');integer(s['residual_refresh_every'],0,name+'.residual_refresh_every')
+            if s['algorithm'] not in ('cg','sgd','adam','muon'):raise ValueError('Invalid solver algorithm')
+            if s['algorithm']!='cg' and s['residual_refresh_every']:raise ValueError('Residual refresh is a CG option')
+            finite(s['learning_rate'],'learning_rate',True);finite(s['epsilon'],'epsilon',True)
+            finite(s['momentum'],'momentum')
+            if not 0<=s['momentum']<1:raise ValueError('momentum must be in [0,1)')
+            if type(s['nesterov'])!=bool:raise ValueError('nesterov must be boolean')
+            if s['algorithm']=='sgd' and s['nesterov'] and s['momentum']==0:raise ValueError('Nesterov SGD needs momentum')
+            if not isinstance(s['betas'],list) or len(s['betas'])!=2:raise ValueError('betas needs two values')
+            for beta in s['betas']:
+                finite(beta,'beta')
+                if not 0<=beta<1:raise ValueError('betas must be in [0,1)')
+            integer(s['muon_ns_steps'],1,'muon_ns_steps')
+            stop=s['stopping'];integer(stop['min_iterations'],0,'min_iterations');integer(stop['check_every'],1,'check_every')
+            if stop['min_iterations']>s['iterations']:raise ValueError('min_iterations exceeds iterations')
+            for key in ('rtol','atol'):
+                if stop[key] is not None:
+                    finite(stop[key],key)
+                    if stop[key]<0:raise ValueError(key+' must be nonnegative or null')
+            integer(stop['stagnation_checks'],0,'stagnation_checks')
+            finite(stop['min_relative_improvement'],'min_relative_improvement')
+            if not 0<=stop['min_relative_improvement']<1:raise ValueError('min_relative_improvement must be in [0,1)')
+            if stop['divergence_factor'] is not None:
+                finite(stop['divergence_factor'],'divergence_factor')
+                if stop['divergence_factor']<=1:raise ValueError('divergence_factor must exceed 1')
+            if guard['reject_on_unconverged'] and name!='diagnostic_energy' and stop['rtol'] is None and stop['atol'] is None:
+                raise ValueError('reject_on_unconverged needs a tolerance for every force/endpoint solver')
         q=d['precision']
         if q['format'] not in ('fp4','fp8','fp16','bf16','tf32'):raise ValueError('Invalid format')
         for name in ('solver_components','momentum_components'):

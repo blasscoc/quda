@@ -1,0 +1,46 @@
+32^4 packed solver smoke: measured results
+==========================================
+
+Cold centered gauge, seed 45, same decoded RHS per component count.
+Warm algorithm paths; maximum 24 updates; relative residual target 0.1.
+SGD lr=0.25; Adam/Muon lr=0.1; Muon momentum=0.9; Adam epsilon=0.01.
+These are untuned smoke settings. All state uses the chosen packed representation.
+Residuals use the packed operator; they do not certify exact QCD sampling.
+
+components algorithm updates alg-s/update total-s residual stop state-MiB Torch-peak-MiB
+         1 cg             12 0.041607 0.631813 0.341885 stagnated      24.0 240.0
+         1 sgd            24 0.024314 0.831052 0.340127 max_iterations 8.0 224.0
+         1 adam           10 0.040659 0.513013 2.063858 stagnated      24.0 240.0
+         1 muon           16 0.039457 0.814866 0.863144 stagnated      16.0 264.0
+         2 cg              4 0.092559 0.469181 0.041339 converged      48.0 328.0
+         2 sgd            10 0.054062 0.765703 0.088148 converged      16.0 296.0
+         2 adam           24 0.080049 2.460009 0.175203 max_iterations 48.0 328.0
+         2 muon           24 0.075850 2.360691 0.420630 max_iterations 32.0 312.0
+
+One 32^4 trajectory: two-component vectors, centered gauge, compact momentum,
+SGD force solves and CG endpoint solves (configs/fp4-solvers/config.json).
+Completed drifts: 1; accepted: True; H0: 23063045.13980103; H1: 23062895.99390519; DeltaH: -149.14589583.
+This is a single cold-start functionality test, not an acceptance-rate study.
+Stage, algorithm, actual/max iterations, final relative residual, wall seconds:
+initial_energy: cg, 6/24, 0.028149, 0.736381
+force: sgd, 8/24, 0.091014, 0.613305
+force: sgd, 8/24, 0.090999, 0.657101
+final_energy: cg, 6/24, 0.028147, 0.728979
+
+CG and SGD crossed the requested stopping target with two-component FP4.
+One-component FP4 did not cross it. Adam and tile-Muon also missed the target
+within 24 updates in the two-component run. Their availability is not a claim
+of convergence superiority. CG retained the lowest solve time to this target.
+
+Adam sensitivity: an earlier epsilon=1e-8 smoke gave residuals ~822 (one
+component) and ~241 (two) at 8 updates. Packed variance underflow with a tiny
+epsilon can amplify updates. epsilon=0.01 reduced this problem but did not
+reach the requested target. No learning-rate/epsilon sweep was performed.
+
+Memory: state-MiB is exact persistent solver storage, excluding RHS and operator.
+Torch peak includes model, RHS, outputs, native workspace and tile temporaries.
+Prior backend/module cycles are garbage-collected between component settings.
+Torch reserved memory is logged separately; whole-machine RAM is not sampled.
+
+Raw iteration histories, resolved policies and source hashes:
+benchmark-results/hmc-solvers-32.json. Reproduce: ./run_hmc_solver_benchmark.sh.

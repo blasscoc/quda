@@ -1,0 +1,175 @@
+Packed workflow solvers and stopping policies
+===========================================
+
+The workflow now owns the complete refresh -> integrate -> endpoint measurement
+-> Metropolis/rollback transaction in HMCTrajectory. LeapfrogIntegrator owns the
+schedule; FermionSolve shares the native operator between force and energy
+stages. hmc_solvers owns algorithms, state, stopping and solve diagnostics.
+compact_hmc.HMC retains the physics kernels and compatibility entry points.
+
+Construct with HMCTrajectory.from_config(HMCConfig.from_pretrained(path)), then
+call workflow() for one trajectory. The configured CLI owns checkpoint/resume,
+provenance and TensorBoard. There is no dependency on Hugging Face Trainer.
+Stateful physics layers are not an end-to-end differentiable neural network;
+ordinary module.state_dict() does not serialize the packed simulation state.
+
+Solver choices (per force, initial_energy, final_energy, diagnostic_energy):
+  cg: packed conjugate gradient; optional residual refresh restarts direction.
+  sgd: torch.optim.SGD with learning_rate, momentum, nesterov.
+  adam: torch.optim.Adam with learning_rate, betas, epsilon.
+  muon: torch.optim.Muon with learning_rate, momentum, nesterov, muon_ns_steps,
+        epsilon; independent tile matrices of shape (tile sites,24).
+
+These are full-system deterministic updates, despite the name SGD. The supplied
+gradient is A(x)-b for the quadratic 0.5*x^T*A*x-b^T*x, not the gradient of squared
+residual (which would require another A). Quantized operator applications are
+approximate. All methods start at x=0 on each solve. Weight decay is fixed to
+zero to avoid changing the requested linear system. Unused algorithm-specific
+settings are retained in resolved configuration; residual_refresh_every is
+rejected for non-CG methods. Learning rates in examples are not tuned optima.
+
+Memory contract
+---------------
+All persistent solution, direction/residual and optimizer moment vectors use
+the backend's configured Field/Expansion. FP4 means packed E2M1 data + row
+scales, optionally the existing two-component expansion and global gain. The
+centered gauge, compact two-component momentum and scalar energy reduction
+options continue to work. FP8, FP16, BF16 and TF32 are also supported.
+
+Torch optimizers decode ONE tile into FP32 for an update and immediately repack
+the result and moments. They do not allocate a full FP32 parameter/master vector
+or full FP32 optimizer state. Native FP4 operator kernels/accumulation are
+unchanged. This is not a claim that every arithmetic instruction is FP4.
+
+Live persistent solver fields, excluding shared RHS/operator/gauge/workspace:
+  CG: x,r,p = 3 vectors
+  SGD: x = 1; with momentum x,m = 2
+  Adam: x,m,v = 3
+  Muon: x,m = 2
+An operator output and bounded decoded tiles are temporary extra allocations.
+The log reports exact persistent_state_bytes and measured whole-process Torch
+peak allocations separately. Two-component FP4 vectors cost twice one-component
+vectors. At 32^4 one vector costs 8 MiB (one component) or 16 MiB (two).
+
+Muon is specifically tile-wise here, unlike a single whole-lattice Muon matrix.
+Changing tile_sites changes its orthogonalization and can change convergence.
+Torch's Muon math uses higher precision working buffers (including BF16 matrix
+operations); those are bounded by tile size. Adam's second moments and FP4
+quantization can underflow; neither optimizer is assumed to outperform CG.
+The generic default Adam epsilon=1e-8 was unstable in the FP4 smoke. The measured
+comparison uses epsilon=0.01; see HMC_SOLVER_RESULTS.txt for both observations.
+
+Solver stopping
+---------------
+iterations is a MAXIMUM when stopping is enabled, a fixed budget otherwise
+(zero RHS, numerical breakdown and nonfinite measured values terminate early).
+Defaults leave tolerances, stagnation and divergence tests disabled.
+
+stopping keys:
+  rtol: relative tolerance, or null
+  atol: absolute residual-norm tolerance, or null
+  min_iterations: earliest convergence/stagnation/divergence stop
+  check_every: evaluate policy every N updates and at the maximum
+  stagnation_checks: consecutive checks without sufficient improvement; 0 off
+  min_relative_improvement: improvement required to reset stagnation counter
+  divergence_factor: stop if residual exceeds this times initial norm; null off
+
+Convergence criterion:
+  ||decoded(b)-decoded(A_packed(x))||_2 <= max(atol, rtol*||decoded(b)||_2).
+Norms decode bounded tiles and accumulate their squares into an FP64 scalar.
+The residual is NOT quantized again before taking its norm. It still measures
+the configured approximate operator, not an independent FP64 reference. A true
+reference/operator discrepancy must be evaluated separately. Relative residual
+is rho; normalized diagnostic loss is 0.5*rho^2, starting at 0.5 for nonzero RHS.
+This normalized loss is a diagnostic, not the physical Hamiltonian or optimizer
+objective. Tolerances refer to rho/norm, not the normalized loss.
+
+Recomputation costs one additional operator application on each checking update.
+Logging and stopping share that result when their schedules coincide. Changing
+diagnostics.residual_every does not change the configured stopping cadence.
+Stopping works with diagnostics.enabled=false. A zero RHS returns zero without
+iterations. No converged status is invented when no tolerance was requested.
+Unmeasured final residual/loss is null, not a stale earlier measurement.
+
+Each solve records algorithm, variant, resolved policy, starting/ending residual
+and normalized loss, actual/max iterations, stop_reason, converged, whole-solve
+wall time, seconds_per_iteration (algorithm only), seconds_per_iteration_with_checks
+(total solve wall time / actual updates), check cost, operator application counts,
+and persistent state bytes. Iteration records distinguish algorithm time from
+diagnostic/stopping-check time. Checks are costly; do not compare algorithm-only
+times to another method's total time. TensorBoard receives summaries per trajectory.
+
+Integrator stopping
+-------------------
+Leaping along a Hamiltonian trajectory is not minimization: small solver loss
+does not mean integration has converged. The default remains a fixed leapfrog
+length, integrator.steps * integrator.step_size, followed by one Metropolis test.
+Stopping on a U-turn/energy plateau and simply accepting the truncated endpoint
+is NOT implemented. NUTS requires candidate selection and reversibility machinery,
+not just a stopping condition. The 2026 WALNUTS paper also builds a complete
+adaptive proposal construction rather than adding a naive break to leapfrog.
+
+Optional integrator.stopping research guards:
+  reject_on_solver_failure: abort for nonfinite/breakdown/diverged/stagnated
+                           force or endpoint solves.
+  reject_on_unconverged: require tolerances for force and both endpoint solvers;
+                        abort when any fails to meet its target.
+  max_abs_delta_h: optional absolute |H-H_initial| limit; null off.
+  check_every_steps: evaluate that energy guard after each N drifts, and final kick.
+
+Guards always reject and restore the original packed gauge and operator cache;
+they never accept a partial trajectory. They work with logging disabled. Energy
+checks use diagnostic_energy budgets at intermediate states and final_energy at
+the endpoint. Intermediate momenta are at the leapfrog half step, so these H
+values can oscillate and their solver approximation can differ from endpoints.
+Choose comparable energy accuracies when interpreting the threshold. The guard
+logs its extra solve time and measured DeltaH. Nonfinite endpoint energy always
+rejects. Unexpected errors also restore gauge/cache before propagating the error.
+
+These optional state-dependent rejection rules are operational experiment guards,
+not a proof of detailed balance; symmetry of an abort rule would need separate
+analysis in a validated sampler. The existing FP4 workflow remains approximate.
+No valid-sampling claim is made for it, with or without these guards.
+
+Example experiments
+-------------------
+  ./run_compact_hmc.sh --config /work/configs/fp4-solvers \
+    --set logging.tensorboard=true --run-dir /work/runs/sgd-force
+  ./run_compact_hmc.sh --config /work/configs/fp4-solvers \
+    --set 'solvers.force.algorithm="muon"' --set solvers.force.momentum=0.95 \
+    --set solvers.force.learning_rate=0.05 --run-dir /work/runs/muon-force
+  ./run_compact_hmc.sh --config /work/configs/fp4-solvers \
+    --set 'solvers.force.algorithm="adam"' --set solvers.force.epsilon=0.01 \
+    --set solvers.force.learning_rate=0.1 --run-dir /work/runs/adam-force
+  ./run_compact_hmc.sh --config /work/configs/fp4-solvers \
+    --set 'solvers.force.algorithm="cg"' --set solvers.force.residual_refresh_every=4 \
+    --run-dir /work/runs/cg-force
+
+The example uses two-component FP4, SGD force solves and CG endpoint solves.
+The existing fp4-research config retains fixed-budget CG behavior by default.
+Use the same endpoint algorithm/tolerances for comparable H estimates. Different
+force tolerances are an explicitly configurable accuracy/performance tradeoff.
+
+Validation/reproduction
+-----------------------
+  ./run_hmc_solver_tests.sh
+  ./run_hmc_config_tests.sh
+  ./run_compact_hmc_tests.sh
+  ./run_hmc_solver_benchmark.sh
+The solver suite compares multi-tile updates to stock Torch, including unequal
+tail tiles, all formats/components, independent diagonal-system residuals,
+stopping cadence, invalid configs, mixed-stage HMC, and rollback after a kernel
+failure and guard abort. The benchmark records a warm 32^4 comparison and an
+actual mixed-solver trajectory in benchmark-results/hmc-solvers-32.json.
+
+Primary references (checked 2026-10-28)
+-------------------------------------
+Torch SGD: https://docs.pytorch.org/docs/2.14/generated/torch.optim.SGD.html
+Torch Adam: https://docs.pytorch.org/docs/2.14/generated/torch.optim.Adam.html
+Torch Muon: https://docs.pytorch.org/docs/2.14/generated/torch.optim.Muon.html
+Hoffman & Gelman, The No-U-Turn Sampler: Adaptively Setting Path Lengths in
+Hamiltonian Monte Carlo, JMLR 15 (2014):1593-1623.
+https://jmlr.csail.mit.edu/beta/papers/v15/hoffman14a.html
+Bou-Rabee, Carpenter, Kleppe & Liu, The Within-Orbit Adaptive Leapfrog No-U-Turn
+Sampler, JMLR 27(113) (2026):1-64.
+https://www.jmlr.org/beta/papers/v27/25-1452.html
