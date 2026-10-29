@@ -1,0 +1,8 @@
+{
+  "action": "post",
+  "kind": "finding",
+  "title": "Autoresearch: trial-001 \u2014 learning-rate sweep",
+  "status": "hypothesis",
+  "episode_id": "autoresearch-fp4-20261029",
+  "body": "```autoresearch\n{\n  \"schema\": \"autoresearch-trial-v1\",\n  \"trial_id\": \"trial-001\",\n  \"contract_id\": \"fp4-trajectory-32-v1\",\n  \"status\": \"idea\",\n  \"hypothesis\": \"Improve whole-trajectory throughput without relaxing convergence or increasing per-site storage.\",\n  \"commit\": \"\",\n  \"seconds\": null,\n  \"iterations\": null,\n  \"residual\": null,\n  \"peak_bytes\": null,\n  \"validation_passed\": false,\n  \"evidence\": \"\",\n  \"metric\": \"trajectory\",\n  \"repeat_count\": null,\n  \"solver_quality_passed\": false,\n  \"hamiltonian_passed\": false,\n  \"memory_scaling_passed\": false\n}\n```"
+}
