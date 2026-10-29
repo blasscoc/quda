@@ -3,7 +3,7 @@
 
 start ID --base REF --directory PATH
 save --worktree PATH --message TEXT FILE [FILE ...]
-record RECEIPT.json   (status=keep/discard/crash; SHA, evidence and measurements)
+record RECEIPT.json   (status=baseline/keep/discard/crash; SHA, evidence and measurements)
 best                  (refs/autoresearch/CAMPAIGN/best)
 """
 import argparse,json,math,re,subprocess
@@ -44,11 +44,12 @@ def main():
             print(git(root,'rev-parse','--verify',ref))
         else:
             row=json.loads(args.receipt.read_text());status=row.get('status')
-            if status not in ('keep','discard','crash'):raise ValueError('Receipt status must be keep/discard/crash')
+            if status not in ('baseline','keep','discard','crash'):raise ValueError('Receipt status must be baseline/keep/discard/crash')
             commit=git(root,'rev-parse','--verify',str(row.get('commit',''))+'^{commit}')
             if not row.get('contract_id') or not row.get('evidence'):raise ValueError('Contract and raw evidence reference required')
             previous=git(root,'rev-parse','--verify',ref,check=False)
-            if status=='keep':
+            if status in ('baseline','keep'):
+                if status=='baseline' and previous:raise ValueError('A baseline/best already exists for this campaign')
                 for key in ('validation_passed','solver_quality_passed','hamiltonian_passed','memory_scaling_passed'):
                     if row.get(key) is not True:raise ValueError(f'Missing passing gate: {key}')
                 seconds=row.get('seconds');repeats=row.get('repeat_count')
@@ -60,8 +61,8 @@ def main():
                     if seconds>=prior['seconds']:raise ValueError('No measured speed improvement over current best')
             # Notes retain rejected experiments and evidence without changing trees.
             git(root,'notes',f'--ref=autoresearch/{args.campaign}','add','-F',str(args.receipt.resolve()),commit)
-            if status=='keep':git(root,'update-ref',ref,commit,previous or '0'*40)
-            print(json.dumps(dict(commit=commit,status=status,best_ref=ref if status=='keep' else None)))
+            if status in ('baseline','keep'):git(root,'update-ref',ref,commit,previous or '0'*40)
+            print(json.dumps(dict(commit=commit,status=status,best_ref=ref if status in ('baseline','keep') else None)))
     except (ValueError,OSError,json.JSONDecodeError) as exc:parser.error(str(exc))
 
 if __name__=='__main__':main()

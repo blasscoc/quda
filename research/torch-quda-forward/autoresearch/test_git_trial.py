@@ -16,11 +16,12 @@ with tempfile.TemporaryDirectory() as tmp:
     run('save','--worktree',work,'--message','experiment','candidate.txt')
     commit=subprocess.check_output(['git','-C',str(work),'rev-parse','HEAD'],text=True).strip()
     receipt=Path(tmp)/'receipt.json'
-    row=dict(commit=commit,status='keep',contract_id='fixed',evidence='raw.json',seconds=1.,repeat_count=3,
+    row=dict(commit=commit,status='baseline',contract_id='fixed',evidence='raw.json',seconds=1.,repeat_count=3,
              validation_passed=True,solver_quality_passed=True,hamiltonian_passed=True,memory_scaling_passed=True)
     receipt.write_text(json.dumps({**row,'memory_scaling_passed':False}));run('record',receipt,ok=False)
     receipt.write_text(json.dumps(row));run('record',receipt)
     assert run('best')==commit
+    receipt.write_text(json.dumps(row));run('record',receipt,ok=False)
     receipt.write_text(json.dumps({**row,'status':'discard'}));run('record',receipt,ok=False)
     assert run('best')==commit and git('rev-parse','HEAD')==original
     assert (root/'candidate.txt').read_text()=='baseline\n'
